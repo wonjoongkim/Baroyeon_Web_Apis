@@ -1,0 +1,6 @@
+# 환경 변수 파일 제외
+.env
+node_modules
+
+# 실행
+npm run start

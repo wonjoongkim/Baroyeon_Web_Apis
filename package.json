@@ -1,0 +1,47 @@
+{
+  "name": "baroyeon_web_api",
+  "version": "1.0.0",
+  "main": "Server/Server.js",
+  "scripts": {
+    "start": "node ./web.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "BaroYeon Web API Connection Project",
+  "dependencies": {
+    "axios": "^1.9.0",
+    "bcrypt": "^5.1.1",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "debug": "^4.4.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase": "^11.2.0",
+    "firebase-admin": "^13.0.2",
+    "form-data": "^4.0.0",
+    "fs": "^0.0.1-security",
+    "jsonwebtoken": "^9.0.2",
+    "mariadb": "^3.4.0",
+    "mongodb": "^6.13.0",
+    "mssql": "^11.0.1",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2",
+    "path": "^0.12.7",
+    "util": "^0.12.5",
+    "uuid": "^8.3.2",
+    "yarn": "^1.22.22"
+  },
+  "pkg": {
+    "scripts": "*.js",
+    "targets": [
+      "node14-win-x64"
+    ]
+  },
+  "engines": {
+    "node": "14.x"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
