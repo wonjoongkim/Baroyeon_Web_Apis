@@ -47,7 +47,7 @@ const FileUpload = async (req, res) => {
           RET_CODE: "1002",
         });
       }
-      
+
       File_Path = `${process.env.FILEUPLOAD_PATH}/`;
       // let File_Path = "";
       // if (FileType === "BOARD")
@@ -121,7 +121,7 @@ const EditorUpload = async (req, res) => {
           RET_CODE: "1002",
         });
       }
-      
+
       File_Path = `${process.env.FILEUPLOAD_PATH_EDITOR}/`;
 
       insertedFiles.push({
@@ -164,7 +164,7 @@ const FileDelete = async (req, res) => {
 
     // 실제 파일 삭제
     filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, Save_FileName);
-    
+
     // let filePath = "";
     // if (FileType === "BOARD")
     //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_BOARD, Save_FileName);
@@ -192,7 +192,7 @@ const FileDelete = async (req, res) => {
       }
     }
 
-     // DB에서 파일 정보 삭제
+    // DB에서 파일 정보 삭제
     const deleteQuery = ` DELETE FROM FILE_ATTACH WHERE SAVE_FILENAME = @Save_FileName AND FILE_KEY = @File_Key `;
     const deleteParams = [
       { name: 'Save_FileName', type: sql.VarChar, value: Save_FileName },
@@ -227,24 +227,24 @@ const FileDelete = async (req, res) => {
 // 다운로드 API
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 const FileDownLoad = async (req, res) => {
-     const { fileName, FileType } = req.body;
+  const { fileName, FileType } = req.body;
 
-     filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, fileName);
-    //  let filePath = "";
-    //  if (FileType === "BOARD")
-    //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_BOARD, fileName);
-    //  else if (FileType === "MEETING")
-    //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MEETING, fileName);
-    //  else if (FileType === "EVENT")
-    //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_EVENT, fileName);
-    //  else if (FileType === "MARRIAGE")
-    //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MARRIAGE, fileName);
- 
-      if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: "파일 없음" });
-    }
-  
-    res.download(filePath); // Content-Disposition 헤더 포함
+  filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, fileName);
+  //  let filePath = "";
+  //  if (FileType === "BOARD")
+  //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_BOARD, fileName);
+  //  else if (FileType === "MEETING")
+  //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MEETING, fileName);
+  //  else if (FileType === "EVENT")
+  //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_EVENT, fileName);
+  //  else if (FileType === "MARRIAGE")
+  //    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MARRIAGE, fileName);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ message: "파일 없음" });
+  }
+
+  res.download(filePath); // Content-Disposition 헤더 포함
 };
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 미리보기 API
@@ -291,7 +291,7 @@ const ADM_LOGIN = async (req, res) => {
         RET_CODE: "1001",
       });
     }
-   
+
     const Query = ` SELECT ADM_ID, ADM_PW, ADM_NAME, ADM_LEVEL FROM ADM_MEM WHERE ADM_ID = @ADM_ID `;
     const params = [{ name: 'ADM_ID', type: sql.VarChar, value: ADM_ID }];
     const [user] = await executeQuery(Query, params);
@@ -514,7 +514,7 @@ const N2N = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -549,9 +549,9 @@ const N2N_DETAIL = async (req, res) => {
         RET_CODE: '4040',
       });
     }
-    
+
     const noticeData = result[0];
-    
+
     let file_result = [];
 
     if (noticeData.FILE_KEY) {
@@ -561,7 +561,7 @@ const N2N_DETAIL = async (req, res) => {
       ]);
       file_result = result_f || [];
     }
-    
+
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 조회 성공",
@@ -573,7 +573,7 @@ const N2N_DETAIL = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -593,13 +593,13 @@ const N2N_DETAIL = async (req, res) => {
 const N2N_REGIST = async (req, res) => {
   try {
     const { N2N_Type, N2N_Title, N2N_Contents, N2N_File_Key, N2N_Target_Url, N2N_STATUS, N2N_Create_At } = req.body;
-   
+
     const Query = `
       INSERT INTO NOTICE_NEWS (TYPE_ID, TITLE, CONTENTS, TARGET_URL, FILE_KEY, STATUS, CREATE_AT) VALUES
       (@N2N_TYPE, @N2N_Title, @N2N_Contents, @N2N_Target_Url, @N2N_File_Key, @N2N_STATUS, @N2N_Create_At)
     `;
-    
-      const params = [
+
+    const params = [
       { name: 'N2N_Type', type: sql.VarChar, value: String(N2N_Type) },
       { name: 'N2N_Title', type: sql.VarChar, value: String(N2N_Title) },
       { name: 'N2N_Contents', type: sql.VarChar, value: String(N2N_Contents) },
@@ -611,14 +611,14 @@ const N2N_REGIST = async (req, res) => {
 
     const result = await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 조회 성공",
-    RET_CODE: "0000",
-    RET_DATA: result
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -653,10 +653,10 @@ const N2N_UPDATE = async (req, res) => {
     ];
     const result = await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 수정 성공",
-    RET_CODE: "0000",
-    RET_DATA: ""
+      RET_STAT: "success",
+      RET_DESC: "✅ 수정 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
     });
   } catch (err) {
     console.error(err);
@@ -701,8 +701,8 @@ const N2N_DELETE = async (req, res) => {
       // 파일 삭제
       if (result_sel.length > 0) {
         const filename = result_sel[0].SAVE_FILENAME;
-        
-        
+
+
         filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, fileName);
 
         // let filePath = "";
@@ -803,7 +803,7 @@ const M2E_SELECT = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -842,9 +842,9 @@ const M2E_DETAIL = async (req, res) => {
         RET_CODE: '4040',
       });
     }
-    
+
     const eventData = result[0];
-    
+
     let file_result = [];
 
     if (eventData.FILE_KEY) {
@@ -854,7 +854,7 @@ const M2E_DETAIL = async (req, res) => {
       ]);
       file_result = result_f || [];
     }
-    
+
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 조회 성공",
@@ -866,7 +866,7 @@ const M2E_DETAIL = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -884,22 +884,22 @@ const M2E_DETAIL = async (req, res) => {
 //#############################################################
 const M2E_REGIST = async (req, res) => {
   try {
-    const { 
-      M2E_Type, M2E_TITLE, M2E_TITLE_SUB, M2E_TARGET_URL, M2E_CONTENTS, M2E_MONTENTS, M2E_EVENT_START, 
-      M2E_EVENT_END, M2E_EVENT_ING, M2E_EVENT_DAY, M2E_EVENT_PLACE, M2E_EVENT_PEOPLE, 
+    const {
+      M2E_Type, M2E_TITLE, M2E_TITLE_SUB, M2E_TARGET_URL, M2E_CONTENTS, M2E_MONTENTS, M2E_EVENT_START,
+      M2E_EVENT_END, M2E_EVENT_ING, M2E_EVENT_DAY, M2E_EVENT_PLACE, M2E_EVENT_PEOPLE,
       M2E_FILE_KEY, M2E_STATUS, M2E_CREATE_AT } = req.body;
-      const Query = ` INSERT INTO MEETING_EVENT (TYPE_ID, TITLE, TITLE_SUB, TARGET_URL, CONTENTS, MONTENTS, EVENT_START, EVENT_END, 
+    const Query = ` INSERT INTO MEETING_EVENT (TYPE_ID, TITLE, TITLE_SUB, TARGET_URL, CONTENTS, MONTENTS, EVENT_START, EVENT_END, 
                       EVENT_ING, EVENT_DAY, EVENT_PLACE, EVENT_PEOPLE, FILE_KEY, STATUS, CREATE_AT) 
                       VALUES
                       (@M2E_Type, @M2E_TITLE, @M2E_TITLE_SUB, @M2E_TARGET_URL, @M2E_CONTENTS, @M2E_MONTENTS, @M2E_EVENT_START, 
                       @M2E_EVENT_END, @M2E_EVENT_ING, @M2E_EVENT_DAY, @M2E_EVENT_PLACE, @M2E_EVENT_PEOPLE, 
                       @M2E_FILE_KEY, @M2E_STATUS, @M2E_CREATE_AT) `;
-    
-      const params = [
+
+    const params = [
       { name: 'M2E_Type', type: sql.VarChar, value: M2E_Type },
       { name: 'M2E_TITLE', type: sql.VarChar, value: M2E_TITLE },
       { name: 'M2E_TITLE_SUB', type: sql.VarChar, value: M2E_TITLE_SUB },
-      { name: 'M2E_TARGET_URL', type: sql.VarChar, value: M2E_TARGET_URL },      
+      { name: 'M2E_TARGET_URL', type: sql.VarChar, value: M2E_TARGET_URL },
       { name: 'M2E_CONTENTS', type: sql.VarChar, value: M2E_CONTENTS },
       { name: 'M2E_MONTENTS', type: sql.VarChar, value: M2E_MONTENTS },
       { name: 'M2E_EVENT_START', type: sql.VarChar, value: M2E_EVENT_START },
@@ -915,14 +915,14 @@ const M2E_REGIST = async (req, res) => {
 
     const result = await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 등록 성공",
-    RET_CODE: "0000",
-    RET_DATA: result
+      RET_STAT: "success",
+      RET_DESC: "✅ 등록 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -940,8 +940,8 @@ const M2E_REGIST = async (req, res) => {
 //#############################################################
 const M2E_UPDATE = async (req, res) => {
   try {
-    const { M2E_TITLE, M2E_TITLE_SUB, M2E_TARGET_URL, M2E_CONTENTS, M2E_MONTENTS, M2E_EVENT_START, 
-      M2E_EVENT_END, M2E_EVENT_ING, M2E_EVENT_DAY, M2E_EVENT_PLACE, M2E_EVENT_PEOPLE, 
+    const { M2E_TITLE, M2E_TITLE_SUB, M2E_TARGET_URL, M2E_CONTENTS, M2E_MONTENTS, M2E_EVENT_START,
+      M2E_EVENT_END, M2E_EVENT_ING, M2E_EVENT_DAY, M2E_EVENT_PLACE, M2E_EVENT_PEOPLE,
       M2E_STATUS, M2E_IDX } = req.body;
     const Query = ` UPDATE MEETING_EVENT SET  
                     TITLE = @M2E_TITLE, TITLE_SUB = @M2E_TITLE_SUB, TARGET_URL = @M2E_TARGET_URL, CONTENTS = @M2E_CONTENTS, MONTENTS = @M2E_MONTENTS, EVENT_START = @M2E_EVENT_START, EVENT_END = @M2E_EVENT_END,
@@ -960,14 +960,14 @@ const M2E_UPDATE = async (req, res) => {
       { name: 'M2E_EVENT_PLACE', type: sql.VarChar, value: M2E_EVENT_PLACE },
       { name: 'M2E_EVENT_PEOPLE', type: sql.VarChar, value: M2E_EVENT_PEOPLE },
       { name: 'M2E_STATUS', type: sql.Int, value: M2E_STATUS },
-      { name: 'M2E_IDX', type: sql.Int, value: M2E_IDX }      
+      { name: 'M2E_IDX', type: sql.Int, value: M2E_IDX }
     ];
     await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 수정 성공",
-    RET_CODE: "0000",
-    RET_DATA: ""
+      RET_STAT: "success",
+      RET_DESC: "✅ 수정 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
     });
   } catch (err) {
     console.error(err);
@@ -1012,7 +1012,7 @@ const M2E_DELETE = async (req, res) => {
         const filename = result_sel[0].SAVE_FILENAME;
 
         filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, filename);
-       
+
         try {
           await fs.promises.unlink(filePath);
           console.log(`🗑 파일 삭제 완료: ${filePath}`);
@@ -1096,7 +1096,7 @@ const M2RV_SELECT = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1131,7 +1131,7 @@ const M2RV_REGIST = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1167,9 +1167,9 @@ const M2RV_DETAIL = async (req, res) => {
         RET_CODE: '4040',
       });
     }
-    
+
     const eventData = result[0];
-    
+
     let file_result = [];
 
     if (eventData.FILE_KEY) {
@@ -1179,7 +1179,7 @@ const M2RV_DETAIL = async (req, res) => {
       ]);
       file_result = result_f || [];
     }
-    
+
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 리뷰 조회 성공",
@@ -1191,7 +1191,7 @@ const M2RV_DETAIL = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1215,15 +1215,15 @@ const M2RV_UPDATE = async (req, res) => {
     const params = [
       { name: 'M2E_REVIEW_CONTENTS', type: sql.VarChar, value: M2E_REVIEW_CONTENTS },
       { name: 'M2E_REVIEW_STATUS', type: sql.Int, value: M2E_REVIEW_STATUS },
-      { name: 'M2E_IDX', type: sql.Int, value: M2E_IDX }      
+      { name: 'M2E_IDX', type: sql.Int, value: M2E_IDX }
     ];
     await executeQuery(Query, params);
 
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 리뷰 수정 성공",
-    RET_CODE: "0000",
-    RET_DATA: ""
+      RET_STAT: "success",
+      RET_DESC: "✅ 리뷰 수정 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
     });
   } catch (err) {
     console.error(err);
@@ -1248,7 +1248,7 @@ const M2RV_DELETE = async (req, res) => {
     const { M2E_IDX } = req.body;
     const Query = ` DELETE MEETING_PARTY_REVIEW WHERE MEETING_IDX = @M2E_IDX `;
     const params = [
-      { name: 'M2E_IDX', type: sql.VarChar, value: String(M2E_IDX) }      
+      { name: 'M2E_IDX', type: sql.VarChar, value: String(M2E_IDX) }
     ];
     await executeQuery(Query, params);
     // 모든 삭제 완료 후 응답
@@ -1312,7 +1312,7 @@ const MARRIAGE_SELECT = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1351,9 +1351,9 @@ const MARRIAGE_DETAIL = async (req, res) => {
         RET_CODE: '4040',
       });
     }
-    
+
     const eventData = result[0];
-    
+
     let file_result = [];
 
     if (eventData.FILE_KEY) {
@@ -1363,7 +1363,7 @@ const MARRIAGE_DETAIL = async (req, res) => {
       ]);
       file_result = result_f || [];
     }
-    
+
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 조회 성공",
@@ -1375,7 +1375,7 @@ const MARRIAGE_DETAIL = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1394,13 +1394,13 @@ const MARRIAGE_DETAIL = async (req, res) => {
 const MARRIAGE_REGIST = async (req, res) => {
   try {
     const { MARRIAGE_TITLE, MARRIAGE_SUBJECT, MARRIAGE_CONTENTS, MARRIAGE_FILE_KEY, MARRIAGE_STATUS, MARRIAGE_CREATE_AT } = req.body;
-      const Query = ` INSERT INTO HOLY_REVIEW (TITLE, SUBJECT, CONTENTS, FILE_KEY, STATUS, CREATE_AT) 
+    const Query = ` INSERT INTO HOLY_REVIEW (TITLE, SUBJECT, CONTENTS, FILE_KEY, STATUS, CREATE_AT) 
                       VALUES
                       (@MARRIAGE_TITLE, @MARRIAGE_SUBJECT, @MARRIAGE_CONTENTS, @MARRIAGE_FILE_KEY, @MARRIAGE_STATUS, @MARRIAGE_CREATE_AT) `;
-    
-      const params = [
+
+    const params = [
       { name: 'MARRIAGE_TITLE', type: sql.VarChar, value: MARRIAGE_TITLE },
-      { name: 'MARRIAGE_SUBJECT', type: sql.VarChar, value: MARRIAGE_SUBJECT },       
+      { name: 'MARRIAGE_SUBJECT', type: sql.VarChar, value: MARRIAGE_SUBJECT },
       { name: 'MARRIAGE_CONTENTS', type: sql.VarChar, value: MARRIAGE_CONTENTS },
       { name: 'MARRIAGE_FILE_KEY', type: sql.VarChar, value: MARRIAGE_FILE_KEY },
       { name: 'MARRIAGE_STATUS', type: sql.Int, value: MARRIAGE_STATUS },
@@ -1409,14 +1409,14 @@ const MARRIAGE_REGIST = async (req, res) => {
 
     const result = await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 등록 성공",
-    RET_CODE: "0000",
-    RET_DATA: result
+      RET_STAT: "success",
+      RET_DESC: "✅ 등록 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1443,14 +1443,14 @@ const MARRIAGE_UPDATE = async (req, res) => {
       { name: 'MARRIAGE_SUBJECT', type: sql.VarChar, value: MARRIAGE_SUBJECT },
       { name: 'MARRIAGE_CONTENTS', type: sql.VarChar, value: MARRIAGE_CONTENTS },
       { name: 'MARRIAGE_STATUS', type: sql.Int, value: MARRIAGE_STATUS },
-      { name: 'Holy_Idx', type: sql.Int, value: Holy_Idx }      
+      { name: 'Holy_Idx', type: sql.Int, value: Holy_Idx }
     ];
     await executeQuery(Query, params);
     res.status(200).json({
-    RET_STAT: "success",
-    RET_DESC: "✅ 수정 성공",
-    RET_CODE: "0000",
-    RET_DATA: ""
+      RET_STAT: "success",
+      RET_DESC: "✅ 수정 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
     });
   } catch (err) {
     console.error(err);
@@ -1561,9 +1561,9 @@ const CATEGORY_SELECT = async (req, res) => {
     const WHERE_SEARCH = ` AND TITLE LIKE '%${Search}%' `;
     let WHERE_LEVELS = '';
     if (LEVELS === 3) {
-        WHERE_LEVELS = `, (SELECT COUNT(PG_CODE) FROM AD_CAMPAIGN WHERE AD_CATEGORY_IDX = TB.IDX) AS CATEGORY_INC`;
+      WHERE_LEVELS = `, (SELECT COUNT(PG_CODE) FROM AD_CAMPAIGN WHERE AD_CATEGORY_IDX = TB.IDX) AS CATEGORY_INC`;
     } else {
-        WHERE_LEVELS = `, (SELECT COUNT(IDX) FROM AD_CATEGORY WHERE PARENT_ID = TB.IDX) AS CATEGORY_INC`;
+      WHERE_LEVELS = `, (SELECT COUNT(IDX) FROM AD_CATEGORY WHERE PARENT_ID = TB.IDX) AS CATEGORY_INC`;
     }
     const Query = ` SELECT *${WHERE_LEVELS} FROM
         (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX, TITLE, PARENT_ID, LEVELS, SORT_ORDER, STATUS, CREATE_AT FROM AD_CATEGORY
@@ -1573,18 +1573,18 @@ const CATEGORY_SELECT = async (req, res) => {
       ORDER BY SORT_ORDER ASC`
 
     const Query_Total = ` SELECT COUNT(*) AS TOTAL_CNT FROM AD_CATEGORY WHERE PARENT_ID = @PARENTID AND LEVELS = @LEVELS ${WHERE_SEARCH} `;
-    
+
     const params = [
       { name: 'PARENTID', type: sql.Int, value: PARENTID },
       { name: 'LEVELS', type: sql.Int, value: LEVELS },
       { name: 'startRow', type: sql.Int, value: startRow },
-      { name: 'endRow', type: sql.Int, value: endRow }      
+      { name: 'endRow', type: sql.Int, value: endRow }
     ];
 
     const result = await executeQuery(Query, params);
     const result_total = await executeQuery(Query_Total, params);
     const totalCount = result_total[0]?.TOTAL_CNT || 0;
-    
+
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 조회 성공",
@@ -1704,7 +1704,7 @@ const CATEGORY_UPDATE = async (req, res) => {
       { name: "TITLE", type: sql.VarChar, value: TITLE },
       { name: "STATUS", type: sql.Int, value: STATUS }
     ]
-    
+
     await executeQuery(Query, params);
 
     res.status(200).json({
@@ -2061,15 +2061,64 @@ const CAMPAIGN_DELETE = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
-module.exports = { 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####             설문조사 통계 Start               ######
+//#############################################################
+const SURVEY_DETAIL = async (req, res) => {
+  try {
+    const surveyQuestions = [
+      { question: 'Q1_A', useSplit: false },
+      { question: 'Q2_A', useSplit: false },
+      { question: 'Q3_A', useSplit: true },
+      { question: 'Q4_A', useSplit: false },
+      { question: 'Q5_A', useSplit: false },
+      { question: 'Q6_A', useSplit: true },
+      { question: 'Q7_A', useSplit: false },
+      { question: 'Q8_A', useSplit: false },
+    ];
+
+    const results = [];
+
+    for (const q of surveyQuestions) {
+      const sql = q.useSplit
+        ? `SELECT '${q.question}' AS question, value AS answer, COUNT(*) as result, CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER () AS DECIMAL(5, 2)) AS percentage FROM [baroyeon_crm].[dbo].asso_survey CROSS APPLY dbo.SplitSurveyReasons(${q.question}) GROUP BY value ORDER BY 4 DESC`
+        : `SELECT '${q.question}' AS question, ${q.question} AS answer, COUNT(*) as result, CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER () AS DECIMAL(5, 2)) AS percentage FROM [baroyeon_crm].[dbo].asso_survey WHERE ${q.question} IS NOT NULL GROUP BY ${q.question} ORDER BY 4 DESC`;
+
+      const res = await executeQuery(sql);
+      results.push(...res);
+    }
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: results
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####              설문조사 통계 End                ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+module.exports = {
   ADM_LOGIN, GET_LOGIN_INFO, ADM_REGIST,
-  N2N, N2N_DETAIL, N2N_REGIST, N2N_UPDATE, N2N_DELETE, 
+  N2N, N2N_DETAIL, N2N_REGIST, N2N_UPDATE, N2N_DELETE,
   M2E_SELECT, M2E_DETAIL, M2E_REGIST, M2E_UPDATE, M2E_DELETE,
   M2RV_SELECT, M2RV_DETAIL, M2RV_REGIST, M2RV_UPDATE, M2RV_DELETE,
   MARRIAGE_SELECT, MARRIAGE_DETAIL, MARRIAGE_REGIST, MARRIAGE_UPDATE, MARRIAGE_DELETE,
   FileUpload, FileDelete, FileDownLoad, FilePreView,
   EditorUpload,
   CATEGORY_SELECT, CATEGORY_DETAIL, CATEGORY_REGIST, CATEGORY_UPDATE, CATEGORY_DELETE,
-  CAMPAIGN_SELECT, CAMPAIGN_DETAIL, CAMPAIGN_INIT_DATA, CAMPAIGN_INIT_PARENT, CAMPAIGN_REGIST, CAMPAIGN_UPDATE, CAMPAIGN_DELETE
+  CAMPAIGN_SELECT, CAMPAIGN_DETAIL, CAMPAIGN_INIT_DATA, CAMPAIGN_INIT_PARENT, CAMPAIGN_REGIST, CAMPAIGN_UPDATE, CAMPAIGN_DELETE,
+  SURVEY_DETAIL
 };
 
