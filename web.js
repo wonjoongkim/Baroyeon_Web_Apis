@@ -20,7 +20,9 @@ const corsOptions = {
       "http://baroyeon.net",
       "http://www.baroyeon.net",
       "http://adm.baroyeon.net",
-      "http://localhost:5173"
+      "http://localhost:5173",
+      "http://sign.baroyeon.net",
+      "http://emfs.baroyeon.net"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
