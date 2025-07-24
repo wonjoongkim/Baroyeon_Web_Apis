@@ -145,7 +145,7 @@ try {
                 from [baroyeon_intra].[dbo].EMP_BONSA where network = @NETWORK
                 and (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y') AND
                 (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y')
-                order by emp_level, sort asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
+                order by rk_order asc, emp_level, sort asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
   const params = [
     {name: 'NETWORK', type:sql.Int, value: NETWORK}
   ]

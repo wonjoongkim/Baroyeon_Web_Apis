@@ -1,3 +1,6 @@
+// 현재 server.js는 사용하고 있지 않고
+// 실질적으로 web.js를 활용하고 있음
+
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -36,7 +39,7 @@ app.options("*", cors(corsOptions)); // Preflight 응답
 // 미들웨어 설정
 // app.use(cors());
 app.use(bodyParser.json());
-app.use("/api/users", userRoutes); //프론트 접근시
+app.use("/api/users", userRoutes);  //프론트 접근시
 app.use("/api/admin", adminRoutes); //어드민 접근시
 
 // 에러 처리

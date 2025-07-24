@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const userRoutes = require("./routes/userRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const emfsRoutes = require("./routes/emfsRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 8585;
@@ -38,6 +39,7 @@ app.options("*", cors(corsOptions)); // Preflight 응답
 app.use(bodyParser.json());
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/emfs", emfsRoutes);
 
 // 에러 처리
 app.use((err, req, res, next) => {
