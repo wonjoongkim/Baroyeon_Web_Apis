@@ -5,6 +5,7 @@ require("dotenv").config();
 
 const userRoutes = require("../routes/userRoutes");
 const adminRoutes = require("../routes/adminRoutes");
+const contractRoutes = require("../routes/contractRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 8585;
@@ -38,6 +39,7 @@ app.options("*", cors(corsOptions)); // Preflight 응답
 app.use(bodyParser.json());
 app.use("/api/users", userRoutes); //프론트 접근시
 app.use("/api/admin", adminRoutes); //어드민 접근시
+app.use("/api/contract", contractRoutes); // 전자 계약서
 
 // 에러 처리
 app.use((err, req, res, next) => {
