@@ -303,7 +303,7 @@ try {
       });
     }
 
-    const query = `SELECT APPID, ASSO_IDX, UNAME, JUMIN1, FOREIGN_COUNTRY FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`;
+    const query = `SELECT APPID FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`;
     const params = [{ name: "APPID", type: sql.VarChar, value: APPID }];
     const [userInfo] = await executeQuery(query, params);
 
@@ -355,6 +355,16 @@ const EMFS_LOGIN = async (req, res) => {
         RET_CODE: "1001"
       });
     }
+
+    // ✅ 국가명 → 코드 매핑
+    const nationalityMap = {
+      "대한민국": 0,
+      "미국": 1,
+      "중국": 2,
+      "일본": 3,
+      "기타": 4
+    };
+    const nationalityInt = nationalityMap[Emfs_Nationality];
 
     const [Phone1, Phone2, Phone3] = Emfs_HandPhone.split('-');
     if (!Phone1 || !Phone2 || !Phone3) {
@@ -452,9 +462,9 @@ const EMFS_LOGIN = async (req, res) => {
         { name: 'UNAME', type: sql.VarChar, value: user.uname },
         { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF) },
         { name: 'JUMIN2', type: sql.Int, value: parseInt(Emfs_IdNumberB) },
-        { name: 'FOREIGN_TYPE', type: sql.Int, value: Emfs_Nationality },
+        { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
       ];
-      await executeQuery(Query_I, insertParams);ㅊㄴ
+      await executeQuery(Query_I, insertParams);
     }
 
     // JWT 토큰 발급
