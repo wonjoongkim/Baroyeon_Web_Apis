@@ -17,11 +17,14 @@ const PORT = process.env.PORT || 8585;
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
-      "http://localhost:5173",
       "https://baroyeon.net",
       "https://www.baroyeon.net",
+      "http://baroyeon.net",
+      "http://www.baroyeon.net",
       "http://adm.baroyeon.net",
-      "https://adm.baroyeon.net"
+      "http://localhost:5173",
+      "http://sign.baroyeon.net",
+      "http://emfs.baroyeon.net"
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);

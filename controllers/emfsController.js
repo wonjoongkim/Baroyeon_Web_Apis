@@ -255,13 +255,98 @@ const FilePreView = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####           E-매칭폼 회원정보 체크 Start            ######
+//#############################################################
+const EMFS_CHK = async (req, res) => {
+try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        RET_DESC: "❌ 토큰이 없습니다.",
+        RET_CODE: "4001",
+        RET_DATA: null,
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({
+          RET_DESC: "❌ 토큰이 만료되었습니다.",
+          RET_CODE: "3001",
+          RET_DATA: null,
+        });
+      } else {
+        return res.status(403).json({
+          RET_DESC: "❌ 유효하지 않은 토큰입니다.",
+          RET_CODE: "4004",
+          RET_DATA: null,
+        });
+      }
+    }
+
+    const APPID = decoded.APPID;
+
+    if (!APPID) {
+      return res.status(400).json({
+        RET_DESC: "❌ APPID 정보가 없습니다.",
+        RET_CODE: "4002",
+        RET_DATA: null,
+      });
+    }
+
+    const query = `SELECT APPID, ASSO_IDX, UNAME, JUMIN1, FOREIGN_COUNTRY FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`;
+    const params = [{ name: "APPID", type: sql.VarChar, value: APPID }];
+    const [userInfo] = await executeQuery(query, params);
+
+    if (!userInfo) {
+      return res.status(404).json({
+        RET_DESC: "❌ 사용자 정보를 찾을 수 없습니다.",
+        RET_CODE: "4003",
+        RET_DATA: null,
+      });
+    }
+
+    return res.status(200).json({
+      RET_DESC: "✅ 정보 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: userInfo,
+    });
+  } catch (err) {
+   
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####           E-매칭폼 회원정보 체크 End               ######
+//#############################################################
+
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
 //#####           E-매칭폼 준회원 체크 Start              ######
 //#############################################################
 const EMFS_LOGIN = async (req, res) => {
   try {
-    const { Emfs_Name, Emfs_IdNumberF, Emfs_IdNumberB, Emfs_HandPhone, Emfs_Nationality } = req.body;
+    const {
+      Emfs_Name,        // 이름
+      Emfs_IdNumberF,   // 주민번호 앞자리
+      Emfs_IdNumberB,   // 주민번호 뒷자리
+      Emfs_HandPhone,   // 휴대폰 번호
+      Emfs_Nationality  // 국가
+    } = req.body;
 
     // 유효성 검사
     if (!Emfs_Name || !Emfs_IdNumberF || !Emfs_IdNumberB || !Emfs_HandPhone || !Emfs_Nationality) {
@@ -271,7 +356,6 @@ const EMFS_LOGIN = async (req, res) => {
       });
     }
 
-    // 전화번호 분할
     const [Phone1, Phone2, Phone3] = Emfs_HandPhone.split('-');
     if (!Phone1 || !Phone2 || !Phone3) {
       return res.status(400).json({
@@ -280,42 +364,36 @@ const EMFS_LOGIN = async (req, res) => {
       });
     }
 
-    const Query = `
-        DECLARE @Phone1 VARCHAR(10) = @Phone1Input;
-        DECLARE @RawPhone VARCHAR(20) = @RawPhoneInput;
-        DECLARE @Phone2 VARCHAR(10), @Phone3 VARCHAR(10), @FullPhone VARCHAR(20);
-
-        SET @Phone2 = baroyeon_crm.dbo.UFN_GetHopeMaxLicense('2', '2', @RawPhone);
-        SET @Phone3 = baroyeon_crm.dbo.UFN_GetHopeMaxLicense('2', '3', @RawPhone);
-        SET @FullPhone = @Phone1 + '-' + @Phone2 + '-' + @Phone3;
-
-        SELECT TOP 1 a.idx, b.aid, a.last_counsel, a.state, a.c_manager AS counselor, a.network, a.cust_idx, a.uname, a.jumin1, a.sex, a.married
-        FROM baroyeon_crm.dbo.Asso_mem a
-        INNER JOIN [baroyeon_crm].[dbo].baro_a001 b WITH (NOLOCK) ON a.idx = b.aid
-        WHERE LEN(@FullPhone) > 8 AND (
-            b.tel_hand = @FullPhone OR
-            b.tel_home = @FullPhone OR
-            b.tel_etc_a = @FullPhone OR
-            b.tel_etc_b = @FullPhone OR
-            b.tel_etc_c = @FullPhone OR
-            b.cust_tel_hand = @FullPhone OR
-            b.cust_tel_home = @FullPhone OR
-            b.cust_tel_etc_a = @FullPhone OR
-            b.cust_tel_etc_b = @FullPhone OR
-            b.cust_tel_etc_c = @FullPhone
-        ) AND A.UNAME = @Emfs_Name;
-    `;
-    //  쿼리 파라미터 설정
+    // 파라미터 준비
     const params = [
       { name: 'Phone1Input', type: sql.VarChar, value: Phone1 },
       { name: 'RawPhoneInput', type: sql.VarChar, value: Emfs_HandPhone },
-      { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name }
-      
+      { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
     ];
+
+    // 메인 쿼리 (전화번호 기준 사용자 조회) 로그인 처리
+    const Query = `
+      DECLARE @Phone2 VARCHAR(10), @Phone3 VARCHAR(10), @FullPhone VARCHAR(20);
+      SET @Phone2 = [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @RawPhoneInput);
+      SET @Phone3 = [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @RawPhoneInput);
+      SET @FullPhone = @Phone1Input + '-' + @Phone2 + '-' + @Phone3;
+
+      SELECT TOP 1 a.idx, b.aid, a.last_counsel, a.state, a.c_manager AS counselor, a.network,
+                   a.cust_idx, a.uname, a.jumin1, a.jumin2, a.sex, a.married
+      FROM [baroyeon_crm].[dbo].Asso_mem a
+      INNER JOIN [baroyeon_crm].[dbo].baro_a001 b WITH (NOLOCK) ON a.idx = b.aid
+      WHERE LEN(@FullPhone) > 8
+        AND (
+          b.tel_hand = @FullPhone OR b.tel_home = @FullPhone OR
+          b.tel_etc_a = @FullPhone OR b.tel_etc_b = @FullPhone OR b.tel_etc_c = @FullPhone OR
+          b.cust_tel_hand = @FullPhone OR b.cust_tel_home = @FullPhone OR
+          b.cust_tel_etc_a = @FullPhone OR b.cust_tel_etc_b = @FullPhone OR b.cust_tel_etc_c = @FullPhone
+        )
+        AND a.uname = @Emfs_Name;
+    `;
 
     const [user] = await executeQuery(Query, params);
 
-    // 사용자 없음
     if (!user) {
       return res.status(404).json({
         RET_DATA: null,
@@ -324,9 +402,64 @@ const EMFS_LOGIN = async (req, res) => {
       });
     }
 
-    // 토큰 생성 및 응답
+    // 회원 검색 파라미터
+    const juminParams = [
+      { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
+      { name: 'Jumin1', type: sql.Int, value: parseInt(Emfs_IdNumberF) },
+      { name: 'Jumin2', type: sql.Int, value: parseInt(Emfs_IdNumberB) },
+    ];
+
+    // 회원 검색
+    const Query_S = `
+      SELECT APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7
+      FROM [baroyeon_crm].[dbo].APPMEMBER
+      WHERE UNAME = @Emfs_Name AND JUMIN1 = @Jumin1 AND JUMIN2 = @Jumin2
+    `;
+    const [user_chk] = await executeQuery(Query_S, juminParams);
+
+    let APPID = '';
+
+    if (
+      user_chk &&
+      [user_chk.TAPMENU1, user_chk.TAPMENU2, user_chk.TAPMENU3,
+      user_chk.TAPMENU4, user_chk.TAPMENU5, user_chk.TAPMENU6,
+      user_chk.TAPMENU7].some(value => value === 0)
+    ) {
+      // TAPMENU1~7 항목 중 하나라도 0일 경우 (작성 중 상태)
+      APPID = user_chk.APPID;
+    } else {
+      // 모든 항목이 1 이상이면 신규 APPID 생성 및 저장
+
+      // APPID 생성
+      const Query_N = `
+        SELECT APPID = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
+        FROM [baroyeon_crm].[dbo].APPMEMBER
+      `;
+      const [user_n] = await executeQuery(Query_N);
+      APPID = user_n.APPID;
+
+      // 회원 등록
+      const Query_I = `
+        INSERT INTO [baroyeon_crm].[dbo].APPMEMBER
+        (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
+        VALUES
+        (@APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2, @FOREIGN_TYPE, '', '0',
+        CONVERT(VARCHAR(8), GETDATE(), 112), REPLACE(CONVERT(VARCHAR(8), GETDATE(), 114), ':', ''))
+      `;
+      const insertParams = [
+        { name: 'APPID', type: sql.VarChar, value: APPID },
+        { name: 'ASSO_IDX', type: sql.Int, value: user.idx },
+        { name: 'UNAME', type: sql.VarChar, value: user.uname },
+        { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF) },
+        { name: 'JUMIN2', type: sql.Int, value: parseInt(Emfs_IdNumberB) },
+        { name: 'FOREIGN_TYPE', type: sql.Int, value: Emfs_Nationality },
+      ];
+      await executeQuery(Query_I, insertParams);ㅊㄴ
+    }
+
+    // JWT 토큰 발급
     const AccessToken = jwt.sign(
-      { aid: user.aid },
+      { APPID: APPID },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -334,17 +467,18 @@ const EMFS_LOGIN = async (req, res) => {
     return res.status(200).json({
       RET_DATA: {
         AccessToken,
-        LOGIN_AID: user.aid,
+        LOGIN_IDX: user.idx,
         LOGIN_CUST_IDX: user.cust_idx,
         LOGIN_NAME: user.uname,
-        LOGIN_JUMIN1: Emfs_IdNumberF
+        LOGIN_JUMIN1: Emfs_IdNumberF,
+        APPID: APPID
       },
       RET_DESC: "✅ Login Success",
       RET_CODE: "0000"
     });
 
   } catch (err) {
-    console.error("❌ 로그인 처리 중 오류 발생:", err);
+    console.error("❌ 로그인 처리 중 오류:", err);
     return res.status(500).json({
       RET_DATA: null,
       RET_DESC: "❌ 서버 오류 발생",
@@ -352,6 +486,7 @@ const EMFS_LOGIN = async (req, res) => {
     });
   }
 };
+
 //############################################################
 //#####           E-매칭폼 준회원 체크 End                #####
 //############################################################
@@ -776,5 +911,5 @@ const EMFS_APP7 = async (req, res) => {
     }
 };
 
-module.exports = { EMFS_LOGIN, EMFS_APPMEM, EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
+module.exports = { EMFS_CHK, EMFS_LOGIN, EMFS_APPMEM, EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
 

@@ -4,6 +4,7 @@ const upload = require('../middleware/upload');
 const editor = require('../middleware/editor');
 
 const {
+  EMFS_CHK,
   EMFS_LOGIN,
   EMFS_APPMEM,
   EMFS_APP1,
@@ -28,6 +29,23 @@ const executeQuery = async (query, params = []) => {
   const result = await request.query(query);
   return result.recordset;
 };
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//############################################################
+//#####          E-매칭폼 회원정보 체크 Start              #####
+//############################################################
+router.post("/EMFS_CHK", async (req, res, next) => {
+  try {
+    await EMFS_CHK(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//############################################################
+//#####          E-매칭폼 회원정보 체크 End                #####
+//############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //############################################################

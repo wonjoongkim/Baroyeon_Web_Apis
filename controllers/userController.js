@@ -180,62 +180,88 @@ const DbInFlow = async (req, res) => {
       network, uname, jumin1, sex, married, addr_code, addr_desc, job_code, school_code, tel_number, kakaoid, email, mail_yn, etc, 
       course_ln, course_pg, course_code1, course_code2, course_ip, jumin2, tel_hope_chk, img_url_1, pg_num 
     } = req.body;
-    const Query = `
-      INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
-      ([network], [find_date], [input_date], [uname], [jumin1],
-      [sex], [married], [addr_code], [addr_desc], [job_code],
-      [school_code],
-      [tel_hand1], [tel_hand2], [tel_hand3],
-      [kakaoid], [email],
-      [mail_yn], [etc], [course_ln], [course_pg],
-      [course_code1], [course_code2], [course_ip],
-      [jumin2], [tel_hope_chk], [img_url_1], pg_num)
-      VALUES (
-      @network, GETDATE(), GETDATE(), @uname, @jumin1,
-      @sex, @married, @addr_code, @addr_desc, @job_code,
-      @school_code,
-      '010',
-      [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
-      [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
-      @kakaoid,
-      [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
-      @mail_yn, @etc, @course_ln, @course_pg,
-      @course_code1, @course_code2, @course_ip,
-      @jumin2, @tel_hope_chk, @img_url_1, @pg_num
-    );`;
-    const params = [
-      { name: "network", type: sql.Int, value: network },
-      { name: "uname", type: sql.NVarChar, value: uname },
-      { name: "jumin1", type: sql.Int, value: jumin1 },
-      { name: "school_code", type: sql.Int, value: school_code },
-      { name: "sex", type: sql.Int, value: sex },
-      { name: "married", type: sql.Int, value: married },
-      { name: "addr_code", type: sql.VarChar, value: addr_code },
-      { name: "addr_desc", type: sql.NVarChar, value: addr_desc },
-      { name: "job_code", type: sql.Int, value: job_code },
-      { name: "tel_number", type: sql.NVarChar, value: tel_number },
-      { name: "kakaoid", type: sql.NVarChar, value: kakaoid },
-      { name: "email", type: sql.NVarChar, value: String(email) },
-      { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
-      { name: "etc", type: sql.NVarChar, value: etc },
-      { name: "course_ln", type: sql.VarChar, value: course_ln },
-      { name: "course_pg", type: sql.Int, value: course_pg },
-      { name: "course_code1", type: sql.Int, value: course_code1 },
-      { name: "course_code2", type: sql.Int, value: course_code2 },
-      { name: "course_ip", type: sql.NVarChar, value: course_ip },
-      { name: "jumin2", type: sql.Int, value: jumin2 },
-      { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
-      { name: "img_url_1", type: sql.NVarChar, value: img_url_1 },
-      { name: "pg_num", type: sql.NVarChar, value: pg_num }
-    ];
+    
+     // 전화번호 가공
+    const telHand1 = '010';
+    const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
+    
+    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense]('2', '2', @rawTel) AS val`;
+    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense]('2', '3', @rawTel) AS val`;
 
-    const result = await executeQuery(Query, params);
-    res.status(200).json({
-      RET_STAT: "success",
-      RET_DESC: "✅ 등록 성공",
-      RET_CODE: "0000",
-      RET_DATA: result
-    });
+    const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
+    const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
+    const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+
+    // ✅ 블랙리스트 확인
+    const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
+    const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
+    const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
+
+    // 블랙리스트에 존재하면 등록 차단
+    if (blackUser) {
+      return res.status(403).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+        RET_CODE: "2000"
+      });
+    } else {
+      const Query = `
+        INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
+        ([network], [find_date], [input_date], [uname], [jumin1],
+        [sex], [married], [addr_code], [addr_desc], [job_code],
+        [school_code],
+        [tel_hand1], [tel_hand2], [tel_hand3],
+        [kakaoid], [email],
+        [mail_yn], [etc], [course_ln], [course_pg],
+        [course_code1], [course_code2], [course_ip],
+        [jumin2], [tel_hope_chk], [img_url_1], pg_num)
+        VALUES (
+        @network, GETDATE(), GETDATE(), @uname, @jumin1,
+        @sex, @married, @addr_code, @addr_desc, @job_code,
+        @school_code,
+        '010',
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+        @kakaoid,
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
+        @mail_yn, @etc, @course_ln, @course_pg,
+        @course_code1, @course_code2, @course_ip,
+        @jumin2, @tel_hope_chk, @img_url_1, @pg_num
+      );`;
+      const params = [
+        { name: "network", type: sql.Int, value: network },
+        { name: "uname", type: sql.NVarChar, value: uname },
+        { name: "jumin1", type: sql.Int, value: jumin1 },
+        { name: "school_code", type: sql.Int, value: school_code },
+        { name: "sex", type: sql.Int, value: sex },
+        { name: "married", type: sql.Int, value: married },
+        { name: "addr_code", type: sql.VarChar, value: addr_code },
+        { name: "addr_desc", type: sql.NVarChar, value: addr_desc },
+        { name: "job_code", type: sql.Int, value: job_code },
+        { name: "tel_number", type: sql.NVarChar, value: tel_number },
+        { name: "kakaoid", type: sql.NVarChar, value: kakaoid },
+        { name: "email", type: sql.NVarChar, value: String(email) },
+        { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
+        { name: "etc", type: sql.NVarChar, value: etc },
+        { name: "course_ln", type: sql.VarChar, value: course_ln },
+        { name: "course_pg", type: sql.Int, value: course_pg },
+        { name: "course_code1", type: sql.Int, value: course_code1 },
+        { name: "course_code2", type: sql.Int, value: course_code2 },
+        { name: "course_ip", type: sql.NVarChar, value: course_ip },
+        { name: "jumin2", type: sql.Int, value: jumin2 },
+        { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
+        { name: "img_url_1", type: sql.NVarChar, value: img_url_1 },
+        { name: "pg_num", type: sql.NVarChar, value: pg_num }
+      ];
+
+      const result = await executeQuery(Query, params);
+      res.status(200).json({
+        RET_STAT: "success",
+        RET_DESC: "✅ 등록 성공",
+        RET_CODE: "0000",
+        RET_DATA: result
+      });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ 
