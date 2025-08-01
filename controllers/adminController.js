@@ -479,7 +479,7 @@ const ADM_REGIST = async (req, res) => {
 //#######    공지사항(Notice) & 뉴스(News) List Start    #######
 //#############################################################
 const N2N = async (req, res) => {
-  try{
+  try {
     const { N2N_Type, numPage, TotalPage, Search } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
     const endRow = parseInt(numPage) * parseInt(TotalPage);
@@ -531,7 +531,7 @@ const N2N = async (req, res) => {
 //######    공지사항(Notice) & 뉴스(News) Detail Start    ######
 //#############################################################
 const N2N_DETAIL = async (req, res) => {
-  try{
+  try {
     const { N2N_Type, N2N_IDX } = req.body;
     const Query = ` SELECT IDX, TYPE_ID, TITLE, CONTENTS, TARGET_URL, FILE_KEY, STATUS, CREATE_AT FROM NOTICE_NEWS 
       WHERE TYPE_ID = @N2N_Type AND IDX = @N2N_Idx AND STATUS = '1'
@@ -764,7 +764,7 @@ const N2N_DELETE = async (req, res) => {
 //#####        미팅/이벤트(MEETING/EVENT) List Start       #####
 //#############################################################
 const M2E_SELECT = async (req, res) => {
-  try{
+  try {
     const { M2E_Type, numPage, TotalPage, Search } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
     const endRow = parseInt(numPage) * parseInt(TotalPage);
@@ -821,7 +821,7 @@ const M2E_SELECT = async (req, res) => {
 //#####        미팅/이벤트(MEETING/EVENT) Detail Start     #####
 //#############################################################
 const M2E_DETAIL = async (req, res) => {
-  try{
+  try {
     const { M2E_Type, M2E_IDX } = req.body;
     const Query = ` SELECT TB.RowNum, TB.IDX, TB.TYPE_ID, TB.TITLE, TB.TITLE_SUB, TB.CONTENTS, TB.MONTENTS, TB.EVENT_START, TB.EVENT_END, TB.EVENT_DAY, 
                       TB.EVENT_PLACE, TB.EVENT_PEOPLE, TB.TARGET_URL, TB.CREATE_AT, TB.STATUS, TB.EVENT_ING, TB.FILE_KEY, MPR.MEETING_IDX, MPR.CONTENTS AS REVIEW_CONTENTS, MPR.CARETE_AT AS MEETING_DATE FROM
@@ -1061,7 +1061,7 @@ const M2E_DELETE = async (req, res) => {
 //#####     미팅/파티 후기(MEETING REVIEW) List Start      #####
 //#############################################################
 const M2RV_SELECT = async (req, res) => {
-  try{
+  try {
     const { M2E_Type, numPage, TotalPage, Search } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
     const endRow = parseInt(numPage) * parseInt(TotalPage);
@@ -1113,7 +1113,7 @@ const M2RV_SELECT = async (req, res) => {
 //#####     미팅/파티 후기(MEETING REVIEW) Insert Start    #####
 //#############################################################
 const M2RV_REGIST = async (req, res) => {
-  try{
+  try {
     const { M2E_IDX, M2E_REVIEW_CONTENTS, M2E_REVIEW_STATUS } = req.body;
     const Query = ` INSERT INTO MEETING_PARTY_REVIEW (MEETING_IDX, CONTENTS, STATUS) VALUES (@M2E_IDX, @M2E_REVIEW_CONTENTS, @M2E_REVIEW_STATUS ) `;
     const params = [
@@ -1148,7 +1148,7 @@ const M2RV_REGIST = async (req, res) => {
 //#####     미팅/파티 후기(MEETING REVIEW) Detail Start    #####
 //#############################################################
 const M2RV_DETAIL = async (req, res) => {
-  try{
+  try {
     const { M2E_IDX } = req.body;
     const Query = ` SELECT TB.IDX, TB.TYPE_ID, TB.TITLE, TB.TITLE_SUB, TARGET_URL, TB.EVENT_START, TB.EVENT_END, 
                           TB.EVENT_ING, TB.EVENT_DAY, TB.EVENT_PLACE, TB.EVENT_PEOPLE, TB.FILE_KEY,
@@ -1278,7 +1278,7 @@ const M2RV_DELETE = async (req, res) => {
 //#####           성혼후기 (MARRIAGE) List Start          #####
 //#############################################################
 const MARRIAGE_SELECT = async (req, res) => {
-  try{
+  try {
     const { numPage, TotalPage, Search } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
     const endRow = parseInt(numPage) * parseInt(TotalPage);
@@ -1329,7 +1329,7 @@ const MARRIAGE_SELECT = async (req, res) => {
 //#####          성혼후기 (MARRIAGE) Detail Start         #####
 //#############################################################
 const MARRIAGE_DETAIL = async (req, res) => {
-  try{
+  try {
     const { Holy_Idx } = req.body;
     const Query = ` SELECT HR.IDX, HR.TITLE, HR.SUBJECT, HR.CONTENTS, HR.FILE_KEY, HR.STATUS, HR.CREATE_AT,
                           FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
@@ -1697,7 +1697,7 @@ const CATEGORY_REGIST = async (req, res) => {
 //#############################################################
 const CATEGORY_UPDATE = async (req, res) => {
   try {
-    const {IDX, TITLE, STATUS} = req.body;
+    const { IDX, TITLE, STATUS } = req.body;
     const Query = ` UPDATE AD_CATEGORY SET TITLE = @TITLE, STATUS = @STATUS WHERE IDX = @IDX `
     const params = [
       { name: "IDX", type: sql.Int, value: IDX },
@@ -1863,7 +1863,7 @@ const CAMPAIGN_DETAIL = async (req, res) => {
                     LEFT JOIN AD_CATEGORY C1 ON C1.IDX = C2.PARENT_ID
                     WHERE A.IDX = @IDX `
     const params = [
-      {name: 'IDX', type: sql.Int, value: IDX}
+      { name: 'IDX', type: sql.Int, value: IDX }
     ]
     const result = await executeQuery(Query, params);
     res.status(200).json({
@@ -1931,9 +1931,9 @@ const CAMPAIGN_INIT_DATA = async (req, res) => {
 //#############################################################
 const CAMPAIGN_INIT_PARENT = async (req, res) => {
   try {
-    const {PARENTID} = req.body;
+    const { PARENTID } = req.body;
     const Query = ` SELECT IDX, PARENT_ID, TITLE FROM AD_CATEGORY WHERE PARENT_ID = @PARENTID`;
-    const params = [{name: "PARENTID", type: sql.Int, value: PARENTID}]
+    const params = [{ name: "PARENTID", type: sql.Int, value: PARENTID }]
     const result = await executeQuery(Query, params);
     res.status(200).json({
       RET_STAT: "success",
@@ -1966,11 +1966,11 @@ const CAMPAIGN_REGIST = async (req, res) => {
     const Query = ` INSERT INTO AD_CAMPAIGN (PG_CODE, PG_CODE_URL, AD_CATEGORY_IDX, CAMPAIGN_NAME, STATUS) VALUES
                     (@PG_CODE, @PG_CODE_URL, @AD_CATEGORY_IDX, @CAMPAIGN_NAME, @STATUS) `
     const params = [
-      {name: 'PG_CODE', type: sql.VarChar, value: PG_CODE},
-      {name: 'PG_CODE_URL', type: sql.VarChar, value: `&PgCode=${PG_CODE}`},
-      {name: 'AD_CATEGORY_IDX', type: sql.VarChar, value: AD_CATEGORY_IDX},
-      {name: 'CAMPAIGN_NAME', type: sql.VarChar, value: CAMPAIGN_NAME},
-      {name: 'STATUS', type: sql.Int, value: STATUS}
+      { name: 'PG_CODE', type: sql.VarChar, value: PG_CODE },
+      { name: 'PG_CODE_URL', type: sql.VarChar, value: `&PgCode=${PG_CODE}` },
+      { name: 'AD_CATEGORY_IDX', type: sql.VarChar, value: AD_CATEGORY_IDX },
+      { name: 'CAMPAIGN_NAME', type: sql.VarChar, value: CAMPAIGN_NAME },
+      { name: 'STATUS', type: sql.Int, value: STATUS }
     ]
     const result = await executeQuery(Query, params);
     res.status(200).json({
@@ -2003,10 +2003,10 @@ const CAMPAIGN_UPDATE = async (req, res) => {
     const Query = ` UPDATE AD_CAMPAIGN SET AD_CATEGORY_IDX =  @AD_CATEGORY_IDX, CAMPAIGN_NAME = @CAMPAIGN_NAME, STATUS = @STATUS
                     WHERE IDX = @CAMPAIGN_IDX `
     const params = [
-      {name: 'AD_CATEGORY_IDX', type:sql.VarChar, value: AD_CATEGORY_IDX},
-      {name: 'CAMPAIGN_NAME', type:sql.VarChar, value: CAMPAIGN_NAME},
-      {name: 'STATUS', type:sql.Int, value: STATUS},
-      {name: 'CAMPAIGN_IDX', type:sql.Int, value: CAMPAIGN_IDX}
+      { name: 'AD_CATEGORY_IDX', type: sql.VarChar, value: AD_CATEGORY_IDX },
+      { name: 'CAMPAIGN_NAME', type: sql.VarChar, value: CAMPAIGN_NAME },
+      { name: 'STATUS', type: sql.Int, value: STATUS },
+      { name: 'CAMPAIGN_IDX', type: sql.Int, value: CAMPAIGN_IDX }
     ]
     const result = await executeQuery(Query, params);
     res.status(200).json({
@@ -2038,7 +2038,7 @@ const CAMPAIGN_DELETE = async (req, res) => {
     const { SelectList } = req.body;
     const Query = ` DELETE AD_CAMPAIGN WHERE IDX IN ( @SelectList ) `
     const params = [
-      {name: 'SelectList', type:sql.Int, value: SelectList}
+      { name: 'SelectList', type: sql.Int, value: SelectList }
     ]
     const result = await executeQuery(Query, params);
     res.status(200).json({
@@ -2109,6 +2109,298 @@ const SURVEY_DETAIL = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              팝업 (POPUP) List Start              #####
+//#############################################################
+const POPUP_SELECT = async (req, res) => {
+  try {
+    const { numPage, TotalPage, Search } = req.body;
+
+    const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
+    const endRow = parseInt(numPage) * parseInt(TotalPage);
+
+    const baseQuery = `
+      SELECT RowNum, PA.IDX, PA.TITLE, PA.TARGET_URL, PA.FILE_KEY, PA.START_DATE, PA.END_DATE, PA.IS_ACTIVE, PA.CREATE_AT, 
+            FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH
+      FROM (
+        SELECT ROW_NUMBER() OVER (ORDER BY IDX DESC) AS RowNum, IDX, TITLE, TARGET_URL, FILE_KEY, START_DATE, END_DATE, IS_ACTIVE, CREATE_AT
+        FROM POPUP_ACTIVE
+        WHERE TITLE LIKE @Search
+      ) AS PA
+      LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
+      WHERE PA.RowNum BETWEEN @startRow AND @endRow
+      ORDER BY RowNum ASC, PA.IDX DESC
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) AS TOTAL_CNT FROM POPUP_ACTIVE WHERE TITLE LIKE @Search
+    `;
+
+    const params = [
+      { name: 'Search', type: sql.VarChar, value: `%${Search}%` },
+      { name: 'startRow', type: sql.Int, value: startRow },
+      { name: 'endRow', type: sql.Int, value: endRow }
+    ];
+
+    const result = await executeQuery(baseQuery, params);
+    const result_total = await executeQuery(countQuery, [{ name: 'Search', type: sql.VarChar, value: `%${Search}%` }]);
+    const totalCount = result_total[0]?.TOTAL_CNT || 0;
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: result,
+      TOTAL_COUNT: totalCount
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               팝업 (POPUP) List End               #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####             팝업 (POPUP) Detail Start             #####
+//#############################################################
+const POPUP_DETAIL = async (req, res) => {
+  try {
+    const { popup_idx } = req.body;
+    const Query = ` SELECT PA.IDX, PA.TITLE, PA.TARGET_URL, PA.FILE_KEY, PA.START_DATE, PA.END_DATE,
+                          PA.POPUP_AREA, PA.SHOW_DAY, PA.IS_ACTIVE, PA.CREATE_AT,
+                          FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
+                    FROM POPUP_ACTIVE PA
+                    LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
+                    WHERE PA.IDX = @popup_idx
+                  `;
+    const params = [
+      { name: 'popup_idx', type: sql.Int, value: popup_idx }
+    ];
+    const result = await executeQuery(Query, params);
+
+
+
+    if (!result || result.length === 0) {
+      return res.status(404).json({
+        RET_STAT: 'fail',
+        RET_DESC: '❌ 조회된 게시물이 없습니다',
+        RET_CODE: '4040',
+      });
+    }
+
+    const popupData = result[0];
+
+    let file_result = [];
+
+    if (popupData.FILE_KEY) {
+      const Query_F = ` SELECT FILE_KEY, ORIGINAL_FILENAME, SAVE_FILENAME, FILE_PATH, FILE_EXT, FILE_SIZE FROM FILE_ATTACH WHERE FILE_KEY = @FILE_KEY `;
+      const result_f = await executeQuery(Query_F, [
+        { name: 'FILE_KEY', type: sql.VarChar, value: popupData.FILE_KEY },
+      ]);
+      file_result = result_f || [];
+    }
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: {
+        ...popupData,
+        file_result,
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              팝업 (POPUP) Detail End              #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####             팝업(POPUP) INSERT Start              #####
+//#############################################################
+const POPUP_REGIST = async (req, res) => {
+  try {
+    const {
+      POPUP_TITLE, POPUP_TARGET_URL, POPUP_FILE_KEY, POPUP_START, POPUP_END, POPUP_AREA, POPUP_SHOW_DAY,
+      POPUP_ACTIVE, POPUP_CREATE_AT } = req.body;
+    const Query = ` INSERT INTO POPUP_ACTIVE (TITLE, TARGET_URL, FILE_KEY, START_DATE, END_DATE, POPUP_AREA, SHOW_DAY, IS_ACTIVE, CREATE_AT) 
+                    VALUES (@POPUP_TITLE, @POPUP_TARGET_URL, @POPUP_FILE_KEY, @POPUP_START, @POPUP_END, @POPUP_AREA, @POPUP_SHOW_DAY, @POPUP_ACTIVE, @POPUP_CREATE_AT) `;
+
+    const params = [
+      { name: 'POPUP_TITLE', type: sql.VarChar, value: POPUP_TITLE },
+      { name: 'POPUP_TARGET_URL', type: sql.VarChar, value: POPUP_TARGET_URL },
+      { name: 'POPUP_FILE_KEY', type: sql.VarChar, value: POPUP_FILE_KEY },
+      { name: 'POPUP_START', type: sql.VarChar, value: POPUP_START },
+      { name: 'POPUP_END', type: sql.VarChar, value: POPUP_END },
+      { name: 'POPUP_AREA', type: sql.Char, value: POPUP_AREA },
+      { name: 'POPUP_SHOW_DAY', type: sql.Char, value: POPUP_SHOW_DAY },
+      { name: 'POPUP_ACTIVE', type: sql.Char, value: POPUP_ACTIVE },
+      { name: 'POPUP_CREATE_AT', type: sql.DateTime, value: POPUP_CREATE_AT }
+    ];
+
+    const result = await executeQuery(Query, params);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 등록 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              팝업(POPUP) INSERT End               #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####            팝업 (POPUP) UPDATE Start              #####
+//#############################################################
+const POPUP_UPDATE = async (req, res) => {
+  try {
+    const { POPUP_TITLE, POPUP_TARGET_URL, POPUP_START, POPUP_END, POPUP_AREA, POPUP_SHOW_DAY, POPUP_ACTIVE, POPUP_Idx } = req.body;
+    const Query = ` UPDATE POPUP_ACTIVE SET 
+                      TITLE = @POPUP_TITLE, TARGET_URL = @POPUP_TARGET_URL, START_DATE = @POPUP_START, END_DATE = @POPUP_END, 
+                      POPUP_AREA = @POPUP_AREA, SHOW_DAY = @POPUP_SHOW_DAY, IS_ACTIVE = @POPUP_ACTIVE                      
+                    WHERE IDX = @POPUP_Idx `;
+    const params = [
+      { name: 'POPUP_TITLE', type: sql.VarChar, value: POPUP_TITLE },
+      { name: 'POPUP_TARGET_URL', type: sql.VarChar, value: POPUP_TARGET_URL },      
+      { name: 'POPUP_START', type: sql.VarChar, value: POPUP_START },
+      { name: 'POPUP_END', type: sql.VarChar, value: POPUP_END },
+      { name: 'POPUP_AREA', type: sql.Char, value: POPUP_AREA },
+      { name: 'POPUP_SHOW_DAY', type: sql.Char, value: POPUP_SHOW_DAY },
+      { name: 'POPUP_ACTIVE', type: sql.Char, value: POPUP_ACTIVE },      
+      { name: 'POPUP_Idx', type: sql.Int, value: POPUP_Idx }
+    ];
+    await executeQuery(Query, params);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 수정 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//#############################################################
+//#####             팝업 (POPUP) UPDATE End               #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####             팝업 (POPUP) DELETE Start              #####
+//#############################################################
+const POPUP_DELETE = async (req, res) => {
+  try {
+    const { POPUP_IDX } = req.body;
+
+    for (const IDX of POPUP_IDX) {
+      // POPUP_ACTIVE → FILE_KEY 조회
+      const FILE_SCK = `SELECT FILE_KEY FROM POPUP_ACTIVE WHERE IDX = @IDX`;
+      const result_sck = await executeQuery(FILE_SCK, [{ name: "IDX", type: sql.Int, value: IDX }]);
+
+      if (result_sck.length === 0) {
+        console.log(`IDX: ${IDX} → 해당 데이터 없음`);
+        continue;
+      }
+
+      const fileKey = result_sck[0].FILE_KEY;
+
+      // FILE_ATTACH → 파일명 조회
+      const FILE_SEL = `SELECT SAVE_FILENAME FROM FILE_ATTACH WHERE FILE_KEY = @fileKey`;
+      const result_sel = await executeQuery(FILE_SEL, [{ name: "fileKey", type: sql.VarChar, value: fileKey }]);
+
+      // 파일 삭제
+      if (result_sel.length > 0) {
+        const filename = result_sel[0].SAVE_FILENAME;
+
+        filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, filename);
+        // let filePath = "";
+        // if (FileType === "BOARD")
+        //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_BOARD, fileName);
+        // else if (FileType === "MEETING")
+        //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MEETING, fileName);
+        // else if (FileType === "EVENT")
+        //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_EVENT, fileName);
+        // else if (FileType === "MARRIAGE")
+        //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MARRIAGE, fileName);
+
+        try {
+          await fs.promises.unlink(filePath);
+          console.log(`🗑 파일 삭제 완료: ${filePath}`);
+        } catch (fileErr) {
+          console.warn(`⚠ 파일 삭제 실패 (이미 없을 수 있음): ${filePath}`, fileErr.message);
+        }
+
+        // FILE_ATTACH 삭제
+        const FILE_DEL = `DELETE FROM FILE_ATTACH WHERE FILE_KEY = @fileKey`;
+        await executeQuery(FILE_DEL, [
+          { name: "fileKey", type: sql.VarChar, value: fileKey }
+        ]);
+      }
+
+      // MARRIAGE 삭제
+      const DATE_DEL = `DELETE FROM POPUP_ACTIVE WHERE IDX = @IDX`;
+      await executeQuery(DATE_DEL, [
+        { name: "IDX", type: sql.Int, value: IDX }
+      ]);
+    }
+
+    // 모든 삭제 완료 후 응답
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 삭제 성공",
+      RET_CODE: "0000",
+      RET_DATA: ""
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####              팝업 (POPUP) DELETE End               #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
 module.exports = {
   ADM_LOGIN, GET_LOGIN_INFO, ADM_REGIST,
   N2N, N2N_DETAIL, N2N_REGIST, N2N_UPDATE, N2N_DELETE,
@@ -2119,6 +2411,7 @@ module.exports = {
   EditorUpload,
   CATEGORY_SELECT, CATEGORY_DETAIL, CATEGORY_REGIST, CATEGORY_UPDATE, CATEGORY_DELETE,
   CAMPAIGN_SELECT, CAMPAIGN_DETAIL, CAMPAIGN_INIT_DATA, CAMPAIGN_INIT_PARENT, CAMPAIGN_REGIST, CAMPAIGN_UPDATE, CAMPAIGN_DELETE,
-  SURVEY_DETAIL
+  SURVEY_DETAIL,
+  POPUP_SELECT, POPUP_DETAIL, POPUP_REGIST, POPUP_UPDATE, POPUP_DELETE
 };
 

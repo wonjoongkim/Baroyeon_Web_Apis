@@ -45,6 +45,11 @@ const {
   CAMPAIGN_UPDATE,
   CAMPAIGN_DELETE,
   SURVEY_DETAIL,
+  POPUP_SELECT,
+  POPUP_DETAIL,
+  POPUP_REGIST,
+  POPUP_UPDATE,
+  POPUP_DELETE,
 } = require("../controllers/adminController");
 
 const router = express.Router();
@@ -115,7 +120,7 @@ router.post("/ADM_REGIST", async (req, res, next) => {
 //######    공지사항(Notice) & 뉴스(News) LIST Start     #######
 //#############################################################
 router.post("/N2N", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await N2N(req, res);
   } catch (error) {
     next(error);
@@ -131,7 +136,7 @@ router.post("/N2N", verifyBearerToken, async (req, res, next) => {
 //#####    공지사항(Notice) & 뉴스(News) DETAIL Start     ######
 //#############################################################
 router.post("/N2N_DETAIL", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await N2N_DETAIL(req, res);
   } catch (error) {
     next(error);
@@ -147,9 +152,9 @@ router.post("/N2N_DETAIL", verifyBearerToken, async (req, res, next) => {
 //#####    공지사항(Notice) & 뉴스(News) INSERT Start     ######
 //#############################################################
 router.post("/N2N_REGIST", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await N2N_REGIST(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -163,9 +168,9 @@ router.post("/N2N_REGIST", verifyBearerToken, async (req, res, next) => {
 //#####    공지사항(Notice) & 뉴스(News) UPDATE Start     ######
 //#############################################################
 router.post("/N2N_UPDATE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await N2N_UPDATE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -179,9 +184,9 @@ router.post("/N2N_UPDATE", verifyBearerToken, async (req, res, next) => {
 //#####    공지사항(Notice) & 뉴스(News) DELETE Start     ######
 //#############################################################
 router.post("/N2N_DELETE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await N2N_DELETE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -195,7 +200,7 @@ router.post("/N2N_DELETE", verifyBearerToken, async (req, res, next) => {
 //#####        미팅/이벤트(MEETING/EVENT) List Start       #####
 //#############################################################
 router.post("/M2E_SELECT", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2E_SELECT(req, res);
   } catch (error) {
     next(error);
@@ -211,7 +216,7 @@ router.post("/M2E_SELECT", verifyBearerToken, async (req, res, next) => {
 //#####        미팅/이벤트(MEETING/EVENT) Detail Start     #####
 //#############################################################
 router.post("/M2E_DETAIL", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2E_DETAIL(req, res);
   } catch (error) {
     next(error);
@@ -227,9 +232,9 @@ router.post("/M2E_DETAIL", verifyBearerToken, async (req, res, next) => {
 //#####       미팅/이벤트(MEETING/EVENT) INSERT Start      #####
 //#############################################################
 router.post("/M2E_REGIST", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2E_REGIST(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -243,9 +248,9 @@ router.post("/M2E_REGIST", verifyBearerToken, async (req, res, next) => {
 //#####      미팅/이벤트(MEETING/EVENT) UPDATE Start       #####
 //#############################################################
 router.post("/M2E_UPDATE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2E_UPDATE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -259,9 +264,9 @@ router.post("/M2E_UPDATE", verifyBearerToken, async (req, res, next) => {
 //#####      미팅/이벤트(MEETING/EVENT) DELETE Start       #####
 //#############################################################
 router.post("/M2E_DELETE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2E_DELETE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -275,7 +280,7 @@ router.post("/M2E_DELETE", verifyBearerToken, async (req, res, next) => {
 //#####     미팅/파티 후기(MEETING REVIEW) List Start      #####
 //#############################################################
 router.post("/M2RV_SELECT", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2RV_SELECT(req, res);
   } catch (error) {
     next(error);
@@ -291,7 +296,7 @@ router.post("/M2RV_SELECT", verifyBearerToken, async (req, res, next) => {
 //#####     미팅/파티 후기(MEETING REVIEW) Detail Start    #####
 //#############################################################
 router.post("/M2RV_DETAIL", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2RV_DETAIL(req, res);
   } catch (error) {
     next(error);
@@ -307,9 +312,9 @@ router.post("/M2RV_DETAIL", verifyBearerToken, async (req, res, next) => {
 //#####     미팅/파티 후기(MEETING REVIEW) INSERT Start    #####
 //#############################################################
 router.post("/M2RV_REGIST", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2RV_REGIST(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -323,9 +328,9 @@ router.post("/M2RV_REGIST", verifyBearerToken, async (req, res, next) => {
 //#####     미팅/파티 후기(MEETING REVIEW) UPDATE Start    #####
 //#############################################################
 router.post("/M2RV_UPDATE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2RV_UPDATE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -339,9 +344,9 @@ router.post("/M2RV_UPDATE", verifyBearerToken, async (req, res, next) => {
 //#####     미팅/파티 후기(MEETING REVIEW) DELETE Start    #####
 //#############################################################
 router.post("/M2RV_DELETE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await M2RV_DELETE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -355,9 +360,9 @@ router.post("/M2RV_DELETE", verifyBearerToken, async (req, res, next) => {
 //#####           성혼후기 (MARRIAGE) List Start          #####
 //#############################################################
 router.post("/MARRIAGE_SELECT", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await MARRIAGE_SELECT(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -371,9 +376,9 @@ router.post("/MARRIAGE_SELECT", verifyBearerToken, async (req, res, next) => {
 //#####          성혼후기 (MARRIAGE) Detail Start         #####
 //#############################################################
 router.post("/MARRIAGE_DETAIL", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await MARRIAGE_DETAIL(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -387,9 +392,9 @@ router.post("/MARRIAGE_DETAIL", verifyBearerToken, async (req, res, next) => {
 //#####          성혼후기 (MARRIAGE) INSERT Start         #####
 //#############################################################
 router.post("/MARRIAGE_REGIST", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await MARRIAGE_REGIST(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -403,9 +408,9 @@ router.post("/MARRIAGE_REGIST", verifyBearerToken, async (req, res, next) => {
 //#####         성혼후기 (MARRIAGE) UPDATE Start          #####
 //#############################################################
 router.post("/MARRIAGE_UPDATE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await MARRIAGE_UPDATE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -419,9 +424,9 @@ router.post("/MARRIAGE_UPDATE", verifyBearerToken, async (req, res, next) => {
 //#####         성혼후기 (MARRIAGE) DELETE Start          #####
 //#############################################################
 router.post("/MARRIAGE_DELETE", verifyBearerToken, async (req, res, next) => {
-  try{
+  try {
     await MARRIAGE_DELETE(req, res);
-  }catch (error) {
+  } catch (error) {
     next(error);
   }
 });
@@ -710,6 +715,86 @@ router.post("/SURVEY_DETAIL", verifyBearerToken, async (req, res, next) => {
 });
 //#############################################################
 //#####              설문조사 통계 End                ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              팝업 (POPUP) List Start              #####
+//#############################################################
+router.post("/POPUP_SELECT", verifyBearerToken, async (req, res, next) => {
+  try {
+    await POPUP_SELECT(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               팝업 (POPUP) List End               #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              팝업 (POPUP) Detail Start              #####
+//#############################################################
+router.post("/POPUP_DETAIL", verifyBearerToken, async (req, res, next) => {
+  try {
+    await POPUP_DETAIL(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               팝업 (POPUP) Detail End               #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                  팝업 등록 Start                  ######
+//#############################################################
+router.post("/POPUP_REGIST", verifyBearerToken, async (req, res, next) => {
+  try {
+    await POPUP_REGIST(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                   팝업 등록 End                   ######
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                 팝업 수정 Start                  ######
+//#############################################################
+router.post("/POPUP_UPDATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await POPUP_UPDATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####                  팝업 수정 End                    ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                 팝업 삭제 Start                  ######
+//#############################################################
+router.post("/POPUP_DELETE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await POPUP_DELETE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####                  팝업 삭제 End                    ######
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
