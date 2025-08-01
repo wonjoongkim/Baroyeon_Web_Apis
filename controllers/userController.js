@@ -1129,6 +1129,41 @@ const LANDING_MEMO = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                팝업 상세정보 Start                 #####
+//#############################################################
+const POPUP = async (req, res) => {
+  try {      
+      
+    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, FA.SAVE_FILENAME, FA.FILE_PATH
+                    FROM POPUP_ACTIVE PA
+                    LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
+                    WHERE PA.IS_ACTIVE = 'Y'
+                    AND CONVERT(DATE, PA.START_DATE) <= CONVERT(DATE, GETDATE())
+                    AND CONVERT(DATE, PA.END_DATE) >= CONVERT(DATE, GETDATE()) `;    
+
+    const result = await executeQuery(Query);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ 
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####                 팝업 상세정보 End                  #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
 module.exports = {
   KAKAO_AUTH,
   MEM_CHK,
@@ -1149,5 +1184,6 @@ module.exports = {
   CODE_SELECT,
   LANDING_APPLY,
   LANDING_LIST,
-  LANDING_MEMO
+  LANDING_MEMO,
+  POPUP,
 };
