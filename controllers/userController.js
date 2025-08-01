@@ -185,8 +185,8 @@ const DbInFlow = async (req, res) => {
     const telHand1 = '010';
     const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
     
-    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense]('2', '2', @rawTel) AS val`;
-    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense]('2', '3', @rawTel) AS val`;
+    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
+    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
 
     const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
     const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);

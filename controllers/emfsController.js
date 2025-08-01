@@ -359,10 +359,8 @@ const EMFS_LOGIN = async (req, res) => {
     // ✅ 국가명 → 코드 매핑
     const nationalityMap = {
       "대한민국": 0,
-      "미국": 1,
-      "중국": 2,
-      "일본": 3,
-      "기타": 4
+      "시민권자": 1,
+      "영주권자": 2
     };
     const nationalityInt = nationalityMap[Emfs_Nationality];
 
@@ -415,31 +413,52 @@ const EMFS_LOGIN = async (req, res) => {
     // 회원 검색 파라미터
     const juminParams = [
       { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
-      { name: 'Jumin1', type: sql.Int, value: parseInt(Emfs_IdNumberF) },
-      { name: 'Jumin2', type: sql.Int, value: parseInt(Emfs_IdNumberB) },
+      { name: 'Jumin1', type: sql.Int, value: Emfs_IdNumberF },
+      { name: 'Jumin2', type: sql.Int, value: Emfs_IdNumberB },
     ];
 
     // 회원 검색
     const Query_S = `
-      SELECT APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7
+      SELECT APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7,
+      U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4,
+      U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
+      U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
       FROM [baroyeon_crm].[dbo].APPMEMBER
       WHERE UNAME = @Emfs_Name AND JUMIN1 = @Jumin1 AND JUMIN2 = @Jumin2
     `;
     const [user_chk] = await executeQuery(Query_S, juminParams);
 
     let APPID = '';
+    let STEPS = '0';
+  
+    const isIncompleteForm = user_chk && Object.entries(user_chk)
+    .filter(([key]) => key.startsWith('TAPMENU'))
+    .some(([, value]) => value == 0);
 
-    if (
-      user_chk &&
-      [user_chk.TAPMENU1, user_chk.TAPMENU2, user_chk.TAPMENU3,
-      user_chk.TAPMENU4, user_chk.TAPMENU5, user_chk.TAPMENU6,
-      user_chk.TAPMENU7].some(value => value === 0)
-    ) {
+    if (isIncompleteForm) {
       // TAPMENU1~7 항목 중 하나라도 0일 경우 (작성 중 상태)
       APPID = user_chk.APPID;
+      const hasAgree1 = user_chk.U_AGREE1 == 1 || user_chk.U_AGREE2 == 1 || user_chk.U_AGREE3 == 1;
+      const hasAgree2 = user_chk.U_AGREE6 == 1 || user_chk.U_AGREE7 == 1 || (user_chk.M_DATE_ADD || '').length > 0 || (user_chk.UNAMESIGN_ADD || '').length > 0;
+      const hasAgree3 = user_chk.U_AGREE5 == 1 || (user_chk.U_AGREE5_DT || '').length > 0 || (user_chk.INSERT_IP || '').length > 0 || (user_chk.M_DATE || '').length > 0 || (user_chk.UNAMESIGN || '').length > 0;
+      if (hasAgree1) {
+        STEPS = 'a2';
+        if (hasAgree2) {
+          STEPS = 'a3';
+          if (hasAgree3) {
+            STEPS = 't1';
+          }
+        }
+      }
+      for (let i = 1; i <= 7; i++) {
+        const menuValue = user_chk[`TAPMENU${i}`];
+        if (menuValue == 0) {
+          STEPS = `t${i}`;
+          break;
+        }
+      }
     } else {
       // 모든 항목이 1 이상이면 신규 APPID 생성 및 저장
-
       // APPID 생성
       const Query_N = `
         SELECT APPID = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
@@ -451,9 +470,15 @@ const EMFS_LOGIN = async (req, res) => {
       // 회원 등록
       const Query_I = `
         INSERT INTO [baroyeon_crm].[dbo].APPMEMBER
-        (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
+        (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, SEX, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
         VALUES
-        (@APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2, @FOREIGN_TYPE, '', '0',
+        (@APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2, 
+        CASE 
+          WHEN LEFT(@JUMIN2, 1) IN ('1', '3', '5', '7') THEN '1'
+          WHEN LEFT(@JUMIN2, 1) IN ('2', '4', '6', '8') THEN '2'
+          ELSE NULL -- 기타(외국인 포함)
+        END,
+        @FOREIGN_TYPE, @FOREIGN_COUNTRY, '0',
         CONVERT(VARCHAR(8), GETDATE(), 112), REPLACE(CONVERT(VARCHAR(8), GETDATE(), 114), ':', ''))
       `;
       const insertParams = [
@@ -463,6 +488,7 @@ const EMFS_LOGIN = async (req, res) => {
         { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF) },
         { name: 'JUMIN2', type: sql.Int, value: parseInt(Emfs_IdNumberB) },
         { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
+        { name: 'FOREIGN_COUNTRY', type: sql.Int, value: Emfs_Nationality }        
       ];
       await executeQuery(Query_I, insertParams);
     }
@@ -480,8 +506,11 @@ const EMFS_LOGIN = async (req, res) => {
         LOGIN_IDX: user.idx,
         LOGIN_CUST_IDX: user.cust_idx,
         LOGIN_NAME: user.uname,
-        LOGIN_JUMIN1: Emfs_IdNumberF,
-        APPID: APPID
+        LOGIN_JUMIN1: Emfs_IdNumberF + Emfs_IdNumberB.charAt(0),
+        APPID: APPID,
+        STEPS: STEPS,
+        COUNTRY_TYPE: nationalityInt,
+        COUNTRY: Emfs_Nationality
       },
       RET_DESC: "✅ Login Success",
       RET_CODE: "0000"
@@ -504,99 +533,96 @@ const EMFS_LOGIN = async (req, res) => {
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //############################################################
-//#####              ADMIN 정보 조회 Start                #####
+//#####               동의서 등록 Start                   #####
 //############################################################
-
-const EMFS_APPMEM = async (req, res) => {
+const EMFS_AGREE = async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
+    const { APPID, ERFS_NAME, AGREE_TYPE, M_DATE_ADD, M_DATE } = req.body;
+    const USER_IP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        RET_DESC: "❌ 토큰이 없습니다.",
+    let Query = "";
+    let params = [
+      { name: "APPID", type: sql.VarChar, value: APPID }
+    ];
+
+    if (AGREE_TYPE === '1') {
+      Query = `
+        UPDATE [baroyeon_crm].[dbo].APPMEMBER 
+        SET U_AGREE1 = '1', U_AGREE2 = '1', U_AGREE3 = '1', U_AGREE4 = '1' 
+        WHERE APPID = @APPID
+      `;
+    } else if (AGREE_TYPE === '2') {
+      Query = `
+        UPDATE [baroyeon_crm].[dbo].APPMEMBER 
+        SET U_AGREE6 = '1', U_AGREE7 = '1', M_DATE_ADD = @M_DATE_ADD, UNAMESIGN_ADD = @ERFS_NAME 
+        WHERE APPID = @APPID
+      `;
+      params.push(
+        { name: "M_DATE_ADD", type: sql.VarChar, value: M_DATE_ADD },
+        { name: "ERFS_NAME", type: sql.VarChar, value: ERFS_NAME }
+      );
+    } else if (AGREE_TYPE === '3') {
+      Query = `
+        UPDATE [baroyeon_crm].[dbo].APPMEMBER 
+        SET U_AGREE5 = '1', M_DATE = @M_DATE, UNAMESIGN = @ERFS_NAME, INSERT_IP = @INSERT_IP, U_AGREE5_DT = getdate()
+        WHERE APPID = @APPID
+      `;
+      params.push(
+        { name: "M_DATE", type: sql.VarChar, value: M_DATE },
+        { name: "ERFS_NAME", type: sql.VarChar, value: ERFS_NAME },
+        { name: "INSERT_IP", type: sql.VarChar, value: USER_IP }
+      );
+    } else {
+      return res.status(400).json({
+        RET_DESC: "❌ AGREE_TYPE 값이 올바르지 않습니다.",
         RET_CODE: "4001",
         RET_DATA: null,
       });
     }
 
-    const token = authHeader.split(" ")[1];
+    await executeQuery(Query, params);
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (err) {
-      if (err.name === "TokenExpiredError") {
-        return res.status(401).json({
-          RET_DESC: "❌ 토큰이 만료되었습니다.",
-          RET_CODE: "3001",
-          RET_DATA: null,
-        });
-      } else {
-        return res.status(403).json({
-          RET_DESC: "❌ 유효하지 않은 토큰입니다.",
-          RET_CODE: "4004",
-          RET_DATA: null,
-        });
-      }
-    }
-
-    const ADM_ID = decoded.ADM_ID;
-
-    if (!ADM_ID) {
-      return res.status(400).json({
-        RET_DESC: "❌ ADM_ID 정보가 없습니다.",
-        RET_CODE: "4002",
-        RET_DATA: null,
-      });
-    }
-
-    const query = `SELECT ADM_ID, ADM_NAME, ADM_LEVEL, ADM_MOBILE FROM ADM_MEM WHERE ADM_ID = @ADM_ID`;
-    const params = [{ name: "ADM_ID", type: sql.VarChar, value: ADM_ID }];
-    const [userInfo] = await executeQuery(query, params);
-
-    if (!userInfo) {
-      return res.status(404).json({
-        RET_DESC: "❌ 사용자 정보를 찾을 수 없습니다.",
-        RET_CODE: "4003",
-        RET_DATA: null,
-      });
-    }
+    console.log("🟡 SQL 실행 전:", Query);
+    console.log("🟡 Params:", params);
 
     return res.status(200).json({
-      RET_DESC: "✅ 로그인 정보 조회 성공",
+      RET_DESC: "✅ 동의 정보 업데이트 성공",
       RET_CODE: "0000",
-      RET_DATA: userInfo,
+      RET_DATA: "success",
     });
-  } catch (err) {
-    // 프로덕션에서는 로그를 제한하는 것도 고려
-    if (process.env.NODE_ENV !== 'production') {
-      console.error("로그인 처리 중 오류 발생:", err);
-    }
 
-    res.status(500).json({
-      RET_DATA: null,
+  } catch (err) {
+    console.error("❌ EMFS_AGREE 처리 중 오류 발생:", err);
+    return res.status(500).json({
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
+      RET_DATA: null,
     });
   }
 };
 
+
 //############################################################
-//#####              ADMIN 정보 조회 End                  #####
+//#####                동의서 조회 End                    #####
 //############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //############################################################
-//#####              ADMIN 등록 Start                  #####
+//#####              본인소개 등록 Start                  #####
 //############################################################
 const EMFS_APP1 = async (req, res) => {
   try {
-    const { ADM_ID, ADM_PW, ADM_NAME, ADM_MOBILE } = req.body;
+    const { EMFS_APPID, EMFS_UNAME, EMFS_ANCESTRAL, EMFS_GENDER, EMFS_MARRIED, EMFS_BIRTHDAY, EMFS_COUNTRY, EMFS_EMAIL, 
+            EMFS_ADDR_DOMICILE_1, EMFS_ADDR_DOMICILE_2, EMFS_ADDR_DOMICILE_3, EMFS_ADDR_HOME_1, EMFS_ADDR_HOME_2, EMFS_ADDR_HOME_3, 
+            EMFS_TEL_HAND, EMFS_TEL_ETC_A, EMFS_TEL_ETC_B, EMFS_TEL_ETC_C, 
+            EMFS_PROBLEM_CHK, EMFS_GLASSES, EMFS_DRINKING, EMFS_SMOKING, EMFS_RELIGION, EMFS_RELIGION_STR, EMFS_BLOOD, EMFS_BLOOD_ETC, 
+            EMFS_LIVE_TOGETHER, EMFS_HEIGHT_TXT, EMFS_WEIGHT_TXT, EMFS_ARMY, EMFS_ARMY_ETC
+          } = req.body;
 
-    if (!ADM_ID || !ADM_PW) {
+    if (!EMFS_APPID) {
       return res.status(400).json({
-        RET_DESC: "❌ 아이디와 비밀번호는 필수입니다.",
+        RET_DESC: "❌ 잘못된 접속입니다.",
         RET_CODE: "1001",
       });
     }
@@ -630,7 +656,7 @@ const EMFS_APP1 = async (req, res) => {
   }
 };
 //############################################################
-//#####                 ADMIN 등록 End                   #####
+//#####                 본인소개 등록 End                 #####
 //############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
@@ -921,5 +947,5 @@ const EMFS_APP7 = async (req, res) => {
     }
 };
 
-module.exports = { EMFS_CHK, EMFS_LOGIN, EMFS_APPMEM, EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
+module.exports = { EMFS_CHK, EMFS_LOGIN, EMFS_AGREE, EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
 
