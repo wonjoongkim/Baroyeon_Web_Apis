@@ -250,6 +250,109 @@ const FilePreView = async (req, res) => {
   // 파일을 브라우저에서 미리보기로 열도록 전송
   res.sendFile(resolvedPath);
 };
+
+const EMFS_JOB = async (req, res) => {
+  try {
+    // 직업
+    const query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH = '1' AND CODEGROUP = 'jcd' AND LIVEDATE IS NULL ORDER BY CODEKEY ASC`
+    const JobInfo = await executeQuery(query);
+
+    return res.status(200).json({
+        RET_DESC: "✅ 정보 조회 성공",
+        RET_CODE: "0000",
+        RET_DATA: JobInfo,
+      });
+  } catch (err) {   
+    console.error("❌ EMFS_JOB 오류:", err);
+    // 에러 처리
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+
+const EMFS_JOBDETAIL = async (req, res) => {
+  const { JOBCODE } = req.body;
+  try {
+    // 직업 상세
+    const query = `SELECT CODEKEY, CODEVALUE, DEPTH FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH <> '1' AND CODEGROUP = 'jcd' AND LEFT(CODEKEY, 2) = LEFT(@JOBCODE, 2) AND LIVEDATE IS NULL`
+    const params = [{ name: "JOBCODE", type: sql.VarChar, value: JOBCODE }];
+    const JobDetail = await executeQuery(query, params);
+
+    if (!JobDetail) {
+      return res.status(404).json({
+        RET_DESC: "❌ 직업 정보를 찾을 수 없습니다.",
+        RET_CODE: "4003",
+        RET_DATA: null,
+      });
+    }
+
+    return res.status(200).json({
+      RET_DESC: "✅ 정보 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: JobDetail,
+    });
+  } catch (err) {
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+
+// 최종학력
+const EMFS_SCHOOL = async (req, res) => {
+  try {
+    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].XCODELIST WHERE CODEGROUP = 'school' AND DEPTH = '1' AND LIVEDATE IS NULL `
+    const SchoolInfo = await executeQuery(query);
+
+    return res.status(200).json({
+        RET_DESC: "✅ 정보 조회 성공",
+        RET_CODE: "0000",
+        RET_DATA: SchoolInfo,
+      });
+  } catch (err) {
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+
+// 희망상대 - 코드검색
+const EMFS_CODES = async (req, res) => {
+  try {
+    const { DivCode, CodeGroup, AppId } = req.body;
+
+    query = ` SELECT CODEKEY, CODEVALUE, DEPTH, 
+              (SELECT TOP 1 HOPEMATCH FROM [baroyeon_crm].[dbo].APPMEMBERPROFILE4 WHERE DIVCODE = @DIVCODE AND CODEKEY = DETCODE 
+              AND APPID = @APPID ORDER BY COPYDIV DESC) AS CODEKEY_DATA
+              FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH = '1' AND CODEGROUP =  @CODEGROUP AND LIVEDATE IS NULL ORDER BY SORT `
+    const CodeParams = [
+      { name: 'DIVCODE', type: sql.VarChar, value: DivCode },
+      { name: 'CODEGROUP', type: sql.VarChar, value: CodeGroup },
+      { name: 'APPID', type: sql.VarChar, value: AppId }
+    ];
+    const CodeInfo = await executeQuery(query, CodeParams);
+    
+    return res.status(200).json({
+          RET_DESC: "✅ 정보 조회 성공",
+          RET_CODE: "0000",
+          RET_DATA: CodeInfo,
+    });
+  } catch (err) {
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+
 //#############################################################
 //#############           Common End            ###############
 //#############################################################
@@ -947,5 +1050,9 @@ const EMFS_APP7 = async (req, res) => {
     }
 };
 
-module.exports = { EMFS_CHK, EMFS_LOGIN, EMFS_AGREE, EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
+module.exports = { 
+  EMFS_JOB, 
+  EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES,
+  EMFS_LOGIN, EMFS_AGREE, 
+  EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
 
