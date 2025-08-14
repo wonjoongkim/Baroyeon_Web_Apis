@@ -27,228 +27,95 @@ async function hashPassword(password) {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 파일 업로드
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-const FileUpload = async (req, res) => {
-  try {
-    const { FileKey, FileType } = req.body;
-    const files = req.files;
-    const insertedFiles = [];
 
-    for (const file of files) {
-      const Original_FileName = Buffer.from(file.originalname, 'latin1').toString('utf8'); // 수정
-      const Save_FileName = file.filename;
-      const File_Ext = file.originalname.split(".").pop().toLowerCase();
-      const File_Size = file.size;
-
-      const allowedExt = ['jpg', 'jpeg', 'png', 'pdf', 'docx', 'gif'];
-      if (!allowedExt.includes(File_Ext)) {
-        return res.status(400).json({
-          RET_DATA: null,
-          RET_DESC: `허용되지 않은 파일 형식입니다: .${File_Ext}`,
-          RET_CODE: "1002",
-        });
-      }
-
-      File_Path = `${process.env.FILEUPLOAD_PATH}/`;
-      // let File_Path = "";
-      // if (FileType === "BOARD")
-      //   File_Path = `${process.env.FILEUPLOAD_PATH_BOARD}/`;
-      // else if (FileType === "MEETING")
-      //   File_Path = `${process.env.FILEUPLOAD_PATH_MEETING}/`;
-      // else if (FileType === "EVENT")
-      //   File_Path = `${process.env.FILEUPLOAD_PATH_EVENT}/`;
-      // else if (FileType === "MARRIAGE")
-      //   File_Path = `${process.env.FILEUPLOAD_PATH_MARRIAGE}/`;
-
-      const Query = ` INSERT INTO FILE_ATTACH ( FILE_KEY, ORIGINAL_FILENAME, SAVE_FILENAME, FILE_PATH, FILE_EXT, FILE_SIZE )
-        OUTPUT INSERTED.IDX AS FileIdx
-        VALUES ( @File_Key, @Original_FileName, @Save_FileName, @File_Path, @File_Ext, @File_Size )`;
-
-      const params = [
-        { name: 'File_Key', type: sql.VarChar, value: FileKey },
-        { name: 'Original_FileName', type: sql.VarChar, value: Original_FileName },
-        { name: 'Save_FileName', type: sql.VarChar, value: Save_FileName },
-        { name: 'File_Path', type: sql.VarChar, value: File_Path },
-        { name: 'File_Ext', type: sql.VarChar, value: File_Ext },
-        { name: 'File_Size', type: sql.Int, value: File_Size }
-      ];
-
-      const result = await executeQuery(Query, params);
-
-      insertedFiles.push({
-        FileIdx: result?.recordset?.[0]?.FileIdx || null,
-        SAVE_FILENAME: Save_FileName,
-        ORIGINAL_FILENAME: Original_FileName,
-        FILE_PATH: File_Path,
-        FILE_SIZE: File_Size,
-        FILE_EXT: File_Ext
-      });
-    }
-
-    res.status(200).json({
-      RET_STAT: "success",
-      RET_DESC: "✅ 파일 업로드 성공",
-      RET_CODE: "0000",
-      RET_DATA: insertedFiles
-    });
-
-  } catch (err) {
-    console.error("파일 저장 중 오류 발생:", err);
-    res.status(500).json({
-      RET_STAT: "error",
-      RET_DESC: "❌ 서버 오류 발생",
-      RET_CODE: "1000"
-    });
-  }
+// YYYYMM 폴더명 생성 함수
+const getYYYYMM = () => {
+  const now = new Date();
+  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
 };
 
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-// Editer 파일 업로드
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-const EditorUpload = async (req, res) => {
+const EMFS_FILEUPLOAD = async (req, res) => {
   try {
     const files = req.files;
+    const idx = parseInt(req.body.idx ?? req.idx ?? 1, 10) || 1;
+    const appId = String(req.body.EMFS_APPID ?? "").trim().padStart(6, "0");
+
     const insertedFiles = [];
 
-    for (const file of files) {
-      const Save_FileName = file.filename;
-      const File_Ext = file.originalname.split(".").pop().toLowerCase();
-
-      const allowedExt = ['jpg', 'jpeg', 'png', 'pdf', 'docx', 'gif'];
-      if (!allowedExt.includes(File_Ext)) {
-        return res.status(400).json({
-          RET_DATA: null,
-          RET_DESC: `허용되지 않은 파일 형식입니다: .${File_Ext}`,
-          RET_CODE: "1002",
-        });
-      }
-
-      File_Path = `${process.env.FILEUPLOAD_PATH_EDITOR}/`;
-
-      insertedFiles.push({
-        FILE_PATH: `${File_Path}${Save_FileName}`,
-        FULL_FILE_URL: `${File_Path}${Save_FileName}` // ✅ 절대 경로 추가
-      });
-    }
-
-    res.status(200).json({
-      RET_STAT: "success",
-      RET_DESC: "✅ 파일 업로드 성공",
-      RET_CODE: "0000",
-      RET_DATA: insertedFiles
-    });
-
-  } catch (err) {
-    console.error("파일 저장 중 오류 발생:", err);
-    res.status(500).json({
-      RET_STAT: "error",
-      RET_DESC: "❌ 서버 오류 발생",
-      RET_CODE: "1000"
-    });
-  }
-};
-
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-// 파일 삭제
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-const FileDelete = async (req, res) => {
-  try {
-    const { File_Key, Save_FileName, FileType } = req.body;
-
-    if (!File_Key || !Save_FileName) {
+    if (!files || files.length === 0) {
       return res.status(400).json({
         RET_DATA: null,
-        RET_DESC: "필수 값이 누락되었습니다.",
+        RET_DESC: "업로드할 파일이 없습니다.",
         RET_CODE: "1001",
       });
     }
 
-    // 실제 파일 삭제
-    filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH, Save_FileName);
+    // 저장 루트 경로
+    const basePath = process.env.FILEUPLOAD_PATH_MAPPINGAPP;
+    if (!basePath) {
+      return res.status(500).json({
+        RET_DATA: null,
+        RET_DESC: "서버 설정에 FILEUPLOAD_PATH_MAPPINGAPP 경로가 없습니다.",
+        RET_CODE: "1003",
+      });
+    }
 
-    // let filePath = "";
-    // if (FileType === "BOARD")
-    //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_BOARD, Save_FileName);
-    // else if (FileType === "MEETING")
-    //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MEETING, Save_FileName);
-    // else if (FileType === "EVENT")
-    //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_EVENT, Save_FileName);
-    // else if (FileType === "MARRIAGE")
-    //   filePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MARRIAGE, Save_FileName);
+    // 오늘 날짜 폴더 경로
+    const yyyymm = getYYYYMM();
+    const targetDir = path.join(basePath, yyyymm);
 
+    // 폴더 없으면 생성
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
 
-    try {
-      await fs.promises.unlink(filePath);
-      console.log(`✅ 파일 삭제 성공: ${filePath}`);
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        console.warn(`⚠️ 파일이 존재하지 않아 삭제되지 않았습니다: ${filePath}`);
-      } else {
-        console.error("❌ 파일 삭제 중 오류:", err);
-        return res.status(500).json({
+    let fileCounter = 0;
+
+    for (const file of files) {
+      const File_Ext = file.originalname.split(".").pop().toLowerCase();
+      const allowedExt = ["jpg", "jpeg", "png", "pdf", "gif"];
+
+      if (!allowedExt.includes(File_Ext)) {
+        return res.status(400).json({
           RET_DATA: null,
-          RET_DESC: "❌ 파일 삭제 중 오류가 발생했습니다.",
+          RET_DESC: `허용되지 않은 파일 형식입니다: .${File_Ext}`,
           RET_CODE: "1002",
         });
       }
+
+      // 새 파일명: APPID_idx.ext
+      const newIdx = idx + fileCounter;
+      const newFileName = `${appId}_${newIdx}.${File_Ext}`;
+      const newFilePath = path.join(targetDir, newFileName);
+
+      // 업로드된 파일을 새 위치/이름으로 이동
+      fs.renameSync(file.path, newFilePath);
+
+      insertedFiles.push({
+        FILE_PATH: newFilePath,
+        FULL_FILE_URL: `${targetDir}/${newFileName}`, // 절대 경로
+        ORG_FILE_NAME: file.originalname,
+        SAVE_FILE_NAME: newFileName,
+        YYYYMM: yyyymm,
+      });
+
+      fileCounter++;
     }
 
-    // DB에서 파일 정보 삭제
-    const deleteQuery = ` DELETE FROM FILE_ATTACH WHERE SAVE_FILENAME = @Save_FileName AND FILE_KEY = @File_Key `;
-    const deleteParams = [
-      { name: 'Save_FileName', type: sql.VarChar, value: Save_FileName },
-      { name: 'File_Key', type: sql.VarChar, value: File_Key },
-    ];
-    await executeQuery(deleteQuery, deleteParams);
-
-    // 남은 파일 리스트 조회
-    const selectQuery = ` SELECT FILE_KEY, ORIGINAL_FILENAME, SAVE_FILENAME, FILE_PATH, FILE_EXT, FILE_SIZE FROM FILE_ATTACH WHERE FILE_KEY = @File_Key `;
-    const selectParams = [
-      { name: 'File_Key', type: sql.VarChar, value: File_Key },
-    ];
-    const result = await executeQuery(selectQuery, selectParams);
-
     return res.status(200).json({
-      RET_DATA: result.recordset || [],
-      RET_DESC: "✅ 파일 삭제 완료",
+      RET_STAT: "success",
+      RET_DESC: "✅ 파일 업로드 성공",
       RET_CODE: "0000",
-      RET_DATA: result
+      RET_DATA: insertedFiles,
     });
   } catch (err) {
-    console.error("❌ 파일 삭제 중 예외 발생:", err);
+    console.error("파일 저장 중 오류 발생:", err);
     return res.status(500).json({
-      RET_DATA: null,
-      RET_DESC: `❌ 서버 오류 발생: ${err.message}`,
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
     });
   }
-};
-
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-// 미리보기 API
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
-const FilePreView = async (req, res) => {
-  const { filePath } = req.body;
-
-  if (!filePath) {
-    return res.status(400).json({
-      RET_CODE: "1001",
-      RET_DESC: "파일 경로가 제공되지 않았습니다.",
-      RET_DATA: null
-    });
-  }
-
-  const resolvedPath = path.resolve(filePath);
-
-  if (!fs.existsSync(resolvedPath)) {
-    return res.status(404).json({
-      RET_CODE: "1002",
-      RET_DESC: "파일을 찾을 수 없습니다.",
-      RET_DATA: null
-    });
-  }
-
-  // 파일을 브라우저에서 미리보기로 열도록 전송
-  res.sendFile(resolvedPath);
 };
 
 const EMFS_JOB = async (req, res) => {
@@ -303,7 +170,9 @@ const EMFS_JOBDETAIL = async (req, res) => {
   }
 }
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 최종학력
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 const EMFS_SCHOOL = async (req, res) => {
   try {
     query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].XCODELIST WHERE CODEGROUP = 'school' AND DEPTH = '1' AND LIVEDATE IS NULL `
@@ -323,7 +192,9 @@ const EMFS_SCHOOL = async (req, res) => {
   }
 }
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 희망상대 - 코드검색
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 const EMFS_CODES = async (req, res) => {
   try {
     const { DivCode, CodeGroup, AppId } = req.body;
@@ -338,6 +209,28 @@ const EMFS_CODES = async (req, res) => {
       { name: 'APPID', type: sql.VarChar, value: AppId }
     ];
     const CodeInfo = await executeQuery(query, CodeParams);
+    
+    return res.status(200).json({
+          RET_DESC: "✅ 정보 조회 성공",
+          RET_CODE: "0000",
+          RET_DATA: CodeInfo,
+    });
+  } catch (err) {
+    res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 희망상대 - 중요순위 코드
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+const EMFS_IMPORTANT = async (req, res) => {
+  try {
+    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND DEPTH = '1' AND LIVEDATE IS NULL ORDER BY SORT `
+    const CodeInfo = await executeQuery(query);
     
     return res.status(200).json({
           RET_DESC: "✅ 정보 조회 성공",
@@ -1052,7 +945,7 @@ const EMFS_APP7 = async (req, res) => {
 
 module.exports = { 
   EMFS_JOB, 
-  EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES,
+  EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES, EMFS_IMPORTANT, EMFS_FILEUPLOAD,
   EMFS_LOGIN, EMFS_AGREE, 
   EMFS_APP1, EMFS_APP2, EMFS_APP3, EMFS_APP4, EMFS_APP5, EMFS_APP6, EMFS_APP7 };
 
