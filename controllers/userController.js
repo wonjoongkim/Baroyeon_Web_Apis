@@ -278,6 +278,101 @@ const DbInFlow = async (req, res) => {
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
+//#####             DB유입 등록 [토큰X] Start           #####
+//#############################################################
+const DbInFlowNoAuth = async (req, res) => {
+  try {
+    const {
+      network, uname, addr_code, tel_number, mail_yn, etc,
+      course_pg, course_code1, course_code2, course_ip, tel_hope_chk, pg_num
+    } = req.body;
+
+    // 전화번호 가공
+    const telHand1 = '010';
+    const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
+
+    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
+    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+
+    const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
+    const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
+    const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+
+    // ✅ 블랙리스트 확인
+    const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
+    const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
+    const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
+
+    // 블랙리스트에 존재하면 등록 차단
+    if (blackUser) {
+      return res.status(403).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+        RET_CODE: "2000"
+      });
+    } else {
+      const Query = `
+        INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
+        ([network], [find_date], [input_date], [uname], [jumin1],
+        [sex], [married], [addr_code], [addr_desc], [job_code],
+        [school_code],
+        [tel_hand1], [tel_hand2], [tel_hand3],
+        [kakaoid], [email],
+        [mail_yn], [etc], [course_ln], [course_pg],
+        [course_code1], [course_code2], [course_ip],
+        [jumin2], [tel_hope_chk], [img_url_1], pg_num)
+        VALUES (
+        @network, GETDATE(), GETDATE(), @uname, '',
+        1, 1, @addr_code, '', 0,
+        0,
+        '010',
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+        '',
+        '',
+        @mail_yn, @etc, 0, @course_pg,
+        @course_code1, @course_code2, @course_ip,
+        0, @tel_hope_chk, null, @pg_num
+      );`;
+      const params = [
+        { name: "network", type: sql.Int, value: network },
+        { name: "uname", type: sql.NVarChar, value: uname },      
+        { name: "addr_code", type: sql.VarChar, value: addr_code },        
+        { name: "tel_number", type: sql.NVarChar, value: tel_number },
+        { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
+        { name: "etc", type: sql.NVarChar, value: etc },
+        { name: "course_pg", type: sql.Int, value: course_pg },
+        { name: "course_code1", type: sql.Int, value: course_code1 },
+        { name: "course_code2", type: sql.Int, value: course_code2 },
+        { name: "course_ip", type: sql.NVarChar, value: course_ip },
+        { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
+        { name: "pg_num", type: sql.NVarChar, value: pg_num }
+      ];
+
+      const result = await executeQuery(Query, params);
+      res.status(200).json({
+        RET_STAT: "success",
+        RET_DESC: "✅ 등록 성공",
+        RET_CODE: "0000",
+        RET_DATA: result
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####             DB유입 등록 [토큰X] End             #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
 //#####                성혼회원 후기 LIST Start            #####
 //#############################################################
 const HOLYREVIEW = async (req, res) => {
@@ -1134,14 +1229,14 @@ const LANDING_MEMO = async (req, res) => {
 //#####                팝업 상세정보 Start                 #####
 //#############################################################
 const POPUP = async (req, res) => {
-  try {      
-      
-    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, FA.SAVE_FILENAME, FA.FILE_PATH
+  try {
+
+    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, PA.POPUP_CLOSE_COLOR, FA.SAVE_FILENAME, FA.FILE_PATH
                     FROM POPUP_ACTIVE PA
                     LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
                     WHERE PA.IS_ACTIVE = 'Y'
                     AND CONVERT(DATE, PA.START_DATE) <= CONVERT(DATE, GETDATE())
-                    AND CONVERT(DATE, PA.END_DATE) >= CONVERT(DATE, GETDATE()) `;    
+                    AND CONVERT(DATE, PA.END_DATE) >= CONVERT(DATE, GETDATE()) `;
 
     const result = await executeQuery(Query);
     res.status(200).json({
@@ -1152,7 +1247,7 @@ const POPUP = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -1164,11 +1259,114 @@ const POPUP = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                 SEO POST LIST Start              #####
+//#############################################################
+const POST = async (req, res) => {
+  try {
+    const { numPage, TotalPage } = req.body;
+    const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
+    const endRow = parseInt(numPage) * parseInt(TotalPage);
+
+    // 필수값 검사
+    if (!numPage || !TotalPage) {
+      return res.status(400).json({
+        RET_DESC: "❌ 필수값 누락 (numPage, TotalPage)",
+        RET_CODE: "1001",
+      });
+    }
+
+    const Query = `
+      SELECT * FROM
+        (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX AS POST_IDX, TITLE, SUBJECT, CONTENTS, FILE_KEY, STATUS, CREATE_AT FROM SEO_POST 
+        WHERE STATUS = '1')AS SP
+        LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = SP.FILE_KEY
+      WHERE SP.ROWNUM  
+        BETWEEN @startRow AND @endRow
+      ORDER BY ROWNUM ASC, IDX DESC
+    `;
+    const params = [
+      { name: 'startRow', type: sql.Int, value: startRow },
+      { name: 'endRow', type: sql.Int, value: endRow }
+    ];
+
+    const result = await executeQuery(Query, params);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####                 SEO POST LIST End                #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                SEO POST 상세정보 Start             #####
+//#############################################################
+const POST_DETAIL = async (req, res) => {
+  try {
+    const { POST_IDX } = req.body;
+
+    // 필수값 검사
+    if (!POST_IDX) {
+      return res.status(400).json({
+        RET_DESC: "❌ 필수값 누락 (POST_IDX)",
+        RET_CODE: "1001",
+      });
+    }
+
+    const Query = ` SELECT SP.IDX, SP.TITLE, SP.SUBJECT, SP.CONTENTS, SP.FILE_KEY, SP.STATUS, SP.CREATE_AT, 
+                      Prev.IDX AS Prev_IDX, Prev.TITLE AS Prev_TITLE, Next.IDX AS Next_IDX, Next.TITLE AS Next_TITLE,
+                        FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
+                    FROM SEO_POST SP
+                    LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = SP.FILE_KEY
+                    LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM SEO_POST WHERE IDX < @POST_IDX AND STATUS = '1' ORDER BY IDX DESC ) AS Prev ON 1=1
+                    LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM SEO_POST WHERE IDX > @POST_IDX AND STATUS = '1' ORDER BY IDX ASC ) AS Next ON 1=1
+                    WHERE SP.IDX = @POST_IDX `;
+    const params = [
+      { name: 'POST_IDX', type: sql.Int, value: POST_IDX }
+    ];
+
+    const result = await executeQuery(Query, params);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####               SEO POST 상세정보 End                #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
 module.exports = {
   KAKAO_AUTH,
   MEM_CHK,
   ManagerList,
   DbInFlow, 
+  DbInFlowNoAuth,
   HOLYREVIEW, 
   HOLYREVIEW_DETAIL, 
   M2R,
@@ -1186,4 +1384,6 @@ module.exports = {
   LANDING_LIST,
   LANDING_MEMO,
   POPUP,
+  POST,
+  POST_DETAIL,
 };

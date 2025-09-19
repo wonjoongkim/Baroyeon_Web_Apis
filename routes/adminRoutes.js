@@ -2,6 +2,7 @@ const express = require("express");
 const { verifyBearerToken, storage } = require("../middleware/authMiddleware");
 const upload = require('../middleware/upload');
 const editor = require('../middleware/editor');
+const sunEditor = require('../middleware/sunEditor');
 
 const {
   ADM_LOGIN,
@@ -32,6 +33,7 @@ const {
   FileDownLoad,
   FilePreView,
   EditorUpload,
+  SunEditorUpload,
   CATEGORY_SELECT,
   CATEGORY_DETAIL,
   CATEGORY_REGIST,
@@ -50,6 +52,11 @@ const {
   POPUP_REGIST,
   POPUP_UPDATE,
   POPUP_DELETE,
+  SEO_SELECT,
+  SEO_DETAIL,
+  SEO_REGIST,
+  SEO_UPDATE,
+  SEO_DELETE,
 } = require("../controllers/adminController");
 
 const router = express.Router();
@@ -463,6 +470,18 @@ router.post("/EditorUpload", verifyBearerToken, editor.array("files", 20), Edito
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
+//#####           SunEditor 파일 업로드 Start            ######
+//#############################################################
+
+router.post("/SunEditorUpload", verifyBearerToken, sunEditor.array("files", 20), SunEditorUpload);
+
+//#############################################################
+//#####             SunEditor 파일 업로드   End           ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
 //#####                   파일 삭제 Start                ######
 //#############################################################
 router.post("/FileDelete", verifyBearerToken, async (req, res, next) => {
@@ -795,6 +814,86 @@ router.post("/POPUP_DELETE", verifyBearerToken, async (req, res, next) => {
 });
 //#############################################################
 //#####                  팝업 삭제 End                    ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               SEO (SEO) List Start               #####
+//#############################################################
+router.post("/SEO_SELECT", verifyBearerToken, async (req, res, next) => {
+  try {
+    await SEO_SELECT(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                SEO (SEO) List End                 #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               SEO (SEO) Detail Start              #####
+//#############################################################
+router.post("/SEO_DETAIL", verifyBearerToken, async (req, res, next) => {
+  try {
+    await SEO_DETAIL(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####                SEO (SEO) Detail End               #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####               SEO (SEO) INSERT Start              #####
+//#############################################################
+router.post("/SEO_REGIST", verifyBearerToken, async (req, res, next) => {
+  try {
+    await SEO_REGIST(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####              SEO (SEO) INSERT End                #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              SEO (SEO) UPDATE Start               #####
+//#############################################################
+router.post("/SEO_UPDATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await SEO_UPDATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####              SEO (SEO) UPDATE End                 #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####              SEO (SEO) DELETE Start              #####
+//#############################################################
+router.post("/SEO_DELETE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await SEO_DELETE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####               SEO (SEO) DELETE End               #####
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
