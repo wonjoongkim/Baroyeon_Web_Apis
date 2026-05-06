@@ -68,10 +68,10 @@ const UPLOAD_CONTRACT = async (req, res) => {
 
         // 파일 저장 프로시저 실행
         const transmitParams = [
-            { name: 'asso_mem_idx', type: sql.VarChar(20), value: user_id },
-            { name: 'document_name', type: sql.VarChar(250), value: filename },
-            { name: 'document_type', type: sql.VarChar(20), value: document_type },
-            { name: 'contract_select', type: sql.VarChar(20), value: contract_select }
+            { name: 'asso_mem_idx', type: sql.Int, value: parseInt(user_id, 10) },
+            { name: 'document_name', type: sql.VarChar(sql.MAX), value: filename },
+            { name: 'document_type', type: sql.Int, value: parseInt(document_type, 10) },
+            { name: 'contract_select', type: sql.Int, value: parseInt(contract_select, 10) }
         ];
 
         await executeProcedure('[baroyeon_crm].[dbo].[proc_transmit]', transmitParams);

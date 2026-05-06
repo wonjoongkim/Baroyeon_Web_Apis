@@ -57,6 +57,9 @@ const {
   SEO_REGIST,
   SEO_UPDATE,
   SEO_DELETE,
+  EMPLOYEE_SELECT,
+  ATTENDANCE_DAILY_SELECT,
+  ATTENDANCE_MONTHLY_SELECT,
 } = require("../controllers/adminController");
 
 const router = express.Router();
@@ -775,6 +778,7 @@ router.post("/POPUP_DETAIL", verifyBearerToken, async (req, res, next) => {
 //#############################################################
 router.post("/POPUP_REGIST", verifyBearerToken, async (req, res, next) => {
   try {
+    
     await POPUP_REGIST(req, res);
   } catch (error) {
     next(error);
@@ -894,6 +898,54 @@ router.post("/SEO_DELETE", verifyBearerToken, async (req, res, next) => {
 });
 //#############################################################
 //#####               SEO (SEO) DELETE End               #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####            직원 리스트 (Employee) Start           ######
+//#############################################################
+router.post("/EMPLOYEE_SELECT", verifyBearerToken, async (req, res, next) => {
+  try {
+    await EMPLOYEE_SELECT(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####             직원 리스트 (Employee) End             ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####      출/퇴근 - 일별 리스트 (Attendance) Start      ######
+//#############################################################
+router.post("/ATTENDANCE_SELECT/DAILY", verifyBearerToken, async (req, res, next) => {
+  try {
+    await ATTENDANCE_DAILY_SELECT(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####      출/퇴근 - 일별 리스트 (Attendance) End         ######
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####      출/퇴근 - 월별 리스트 (Attendance) Start      ######
+//#############################################################
+router.post("/ATTENDANCE_SELECT/MONTHLY", verifyBearerToken, async (req, res, next) => {
+  try {
+    await ATTENDANCE_MONTHLY_SELECT(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+//#############################################################
+//#####      출/퇴근 - 월별 리스트 (Attendance) End         ######
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 

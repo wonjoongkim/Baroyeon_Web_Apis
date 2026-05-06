@@ -40,7 +40,7 @@ const storage = multer.diskStorage({
 
 const contractUpload = multer({
     storage,
-    limits: { fileSize: 15 * 1024 * 1024 }, // 15MB 제한
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30MB 제한
     fileFilter: (req, file, cb) => {
         const allowedExt = ['.pdf'];
         const ext = path.extname(file.originalname).toLowerCase();

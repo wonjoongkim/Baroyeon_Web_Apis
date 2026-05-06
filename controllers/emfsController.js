@@ -108,7 +108,7 @@ const EMFS_FILEUPLOAD = async (req, res) => {
         FULL_FILE_URL: `${targetDir}/${newFileName}`, // 절대 경로
         ORG_FILE_NAME: file.originalname,
         SAVE_FILE_NAME: newFileName,
-        YYYYMM: yyyymm
+        YYYYMM: '/xApp/photo/' + yyyymm
       };
 
     return res.status(200).json({
@@ -221,7 +221,7 @@ const EMFS_JOBDETAIL = async (req, res) => {
   const { JOBCODE } = req.body;
   try {
     // 직업 상세
-    const query = `SELECT CODEKEY, CODEVALUE, DEPTH FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH <> '1' AND CODEGROUP = 'jcd' AND LEFT(CODEKEY, 2) = LEFT(@JOBCODE, 2) AND LIVEDATE IS NULL`
+    const query = `SELECT CODEKEY, CODEVALUE, DEPTH FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH <> '1' AND CODEGROUP = 'jcd' AND LEFT(CODEKEY, 2) = LEFT(@JOBCODE, 2) AND LIVEDATE IS NULL ORDER BY SORT ASC`
     const params = [{ name: "JOBCODE", type: sql.VarChar, value: JOBCODE }];
     const JobDetail = await executeQuery(query, params);
 
@@ -306,7 +306,8 @@ const EMFS_CODES = async (req, res) => {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 const EMFS_IMPORTANT = async (req, res) => {
   try {
-    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND DEPTH = '1' AND LIVEDATE IS NULL ORDER BY SORT `
+    // query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND DEPTH = '1' AND LIVEDATE IS NULL ORDER BY SORT `
+    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND CODEKEY IN ('1','2','4','6','10') ORDER BY SORT  `
     const CodeInfo = await executeQuery(query);
     
     return res.status(200).json({
@@ -407,6 +408,8 @@ try {
 //#####           E-매칭폼 회원정보 체크 End               ######
 //#############################################################
 
+
+
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
 //#####           E-매칭폼 준회원 체크 Start              ######
@@ -494,99 +497,91 @@ const EMFS_LOGIN = async (req, res) => {
     }
 
     // ─────────────────────────────────────────
-    // 3) 이름+주민번호로 APPMEMBER 조회
-    // ─────────────────────────────────────────
-    const juminParams = [
-      { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
-      { name: 'Jumin1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
-      { name: 'Jumin2', type: sql.Int, value: parseInt(Emfs_IdNumberB, 10) },
-    ];
+// 3) 이름+주민번호로 APPMEMBER 조회
+// ─────────────────────────────────────────
+const Query_S = `
+SELECT TOP 1 APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7, STEP, 
+       U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4,
+       U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
+       U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
+FROM [baroyeon_crm].[dbo].APPMEMBER
+WHERE UNAME = @Emfs_Name AND REPLACE(JUMIN1, '-', '') = @Jumin1
+ORDER BY APPID DESC
+`;
 
-    const Query_S = `
-      SELECT APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7, STEP, 
-             U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4,
-             U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
-             U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
-      FROM [baroyeon_crm].[dbo].APPMEMBER
-      WHERE UNAME = @Emfs_Name AND JUMIN1 = @Jumin1 AND JUMIN2 = @Jumin2
-    `;
-    const [user_chk] = await executeQuery(Query_S, juminParams);
+const juminParams = [
+{ name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
+{ name: 'Jumin1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
+];
 
-    // 폼 진행 상태 계산 함수 (변수명 유지, 내부 유틸만 추가)
-    const computeSteps = (u) => {
-      const hasAgree1 = u.U_AGREE1 == 1 || u.U_AGREE2 == 1 || u.U_AGREE3 == 1;
-      const hasAgree2 = u.U_AGREE6 == 1 || u.U_AGREE7 == 1 || (u.M_DATE_ADD || '').length > 0 || (u.UNAMESIGN_ADD || '').length > 0;
-      const hasAgree3 = u.U_AGREE5 == 1 || (u.U_AGREE5_DT || '').length > 0 || (u.INSERT_IP || '').length > 0 || (u.M_DATE || '').length > 0 || (u.UNAMESIGN || '').length > 0;
+const [user_chk] = await executeQuery(Query_S, juminParams);
 
-      if (!hasAgree1) return '0';
-      if (hasAgree1 && !hasAgree2) return 'a2';
-      if (hasAgree1 && hasAgree2 && !hasAgree3) return 'a3';
+// 완료/미완료 판단
+//const allOnes = !!user_chk && [1,2,3,4,5,6,7].every(i => Number(user_chk[`TAPMENU${i}`] ?? 0) === 1);
+//const stepIsOne = !!user_chk && Number(user_chk.STEP ?? 0) === 1;
 
-      const taps = [u.TAPMENU1, u.TAPMENU2, u.TAPMENU3, u.TAPMENU4, u.TAPMENU5, u.TAPMENU6, u.TAPMENU7];
-      const firstZeroIdx = taps.findIndex(v => Number(v) === 0);
-      if (firstZeroIdx >= 0) return `t${firstZeroIdx + 1}`;
+// 새 APPID 생성 쿼리/INSERT
+const Query_N = `
+SELECT APPID = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
+FROM [baroyeon_crm].[dbo].APPMEMBER
+`;
+const insertNewAppMember = async (newAppId) => {
+// 뒷자리는 UI 정책상 첫 자리만 의미 → '첫자리 + 000000'로 저장
+const jumin2Composed = String(Emfs_IdNumberB || '').charAt(0) + '000000';
+const Query_I = `
+  INSERT INTO [baroyeon_crm].[dbo].APPMEMBER
+  (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, SEX, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
+  VALUES
+  (
+    @APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2,
+    LEFT(@JUMIN2, 1),
+    @FOREIGN_TYPE, @FOREIGN_COUNTRY, '0',
+    CONVERT(VARCHAR(8), GETDATE(), 112),
+    REPLACE(CONVERT(VARCHAR(8), GETDATE(), 114), ':', '')
+  )
+`;
+const insertParams = [
+  { name: 'APPID', type: sql.VarChar, value: newAppId },
+  { name: 'ASSO_IDX', type: sql.Int, value: user.idx },      // 2) 메인 조회에서 얻은 사용자
+  { name: 'UNAME', type: sql.VarChar, value: user.uname },
+  { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
+  { name: 'JUMIN2', type: sql.VarChar, value: jumin2Composed }, // VarChar 권장
+  { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
+  { name: 'FOREIGN_COUNTRY', type: sql.VarChar, value: Emfs_Nationality },
+];
+await executeQuery(Query_I, insertParams);
+};
 
-      return 't7'; // 전부 1 이상이면 마지막 섹션으로
-    };
+let APPID = '';
+let STEPS = '0';
 
-    let APPID = '';
-    let STEPS = '0';
+if (!user_chk) {
+  // ▶ 레코드 없음 또는 모두 1(작성완료) → 새 APPID 생성
+  const [user_n] = await executeQuery(Query_N);
+  APPID = user_n.APPID;
+  await insertNewAppMember(APPID);
+  STEPS = '0'; // 새 신청서 시작
+} else {
+  // ▶ 이전 e-매칭폼이 없으면 → 기존 APPID 사용
+  APPID = user_chk.APPID;
 
-    if (user_chk) {
-      // 기존 레코드가 있으면 APPID 재사용 + 상태 계산
-      APPID = user_chk.APPID;
-      // (기존 로직 기준 유지) "작성 중" 판정
-      const isIncompleteForm = Object.entries(user_chk)
-        .filter(([key]) => key.startsWith('TAPMENU'))
-        .some(([, value]) => Number(value) === 0);
-      const isStepZero = String(user_chk.STEP ?? '0') === '0';
+  // 필요 시 진행도 계산 유지
+  const computeSteps = (u) => {
+    const hasAgree1 = u.U_AGREE1 == 1 || u.U_AGREE2 == 1 || u.U_AGREE3 == 1;
+    const hasAgree2 = u.U_AGREE6 == 1 || u.U_AGREE7 == 1 || (u.M_DATE_ADD || '').length > 0 || (u.UNAMESIGN_ADD || '').length > 0;
+    const hasAgree3 = u.U_AGREE5 == 1 || (u.U_AGREE5_DT || '').length > 0 || (u.INSERT_IP || '').length > 0 || (u.M_DATE || '').length > 0 || (u.UNAMESIGN || '').length > 0;
 
-      if (isIncompleteForm || isStepZero) {
-        // 동의 단계 + TAPMENU 진행도 기반으로 계산
-        STEPS = computeSteps(user_chk);
-      } else {
-        // 완료에 가까운 상태도 계산 로직 통일
-        STEPS = computeSteps(user_chk);
-      }
-    } else {
-      // 신규: APPID 생성 후 INSERT
-      const Query_N = `
-        SELECT APPID = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
-        FROM [baroyeon_crm].[dbo].APPMEMBER
-      `;
-      const [user_n] = await executeQuery(Query_N);
-      APPID = user_n.APPID;
+    if (!hasAgree1) return '0';
+    if (hasAgree1 && !hasAgree2) return 'a2';
+    if (hasAgree1 && hasAgree2 && !hasAgree3) return 'a3';
 
-      const Query_I = `
-        INSERT INTO [baroyeon_crm].[dbo].APPMEMBER
-        (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, SEX, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
-        VALUES
-        (
-          @APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2, 
-          CASE 
-            WHEN LEFT(@JUMIN2, 1) IN ('1', '3', '5', '7') THEN '1'
-            WHEN LEFT(@JUMIN2, 1) IN ('2', '4', '6', '8') THEN '2'
-            ELSE NULL -- 기타(외국인 포함)
-          END,
-          @FOREIGN_TYPE, @FOREIGN_COUNTRY, '0',
-          CONVERT(VARCHAR(8), GETDATE(), 112),
-          REPLACE(CONVERT(VARCHAR(8), GETDATE(), 114), ':', '')
-        )
-      `;
-      const insertParams = [
-        { name: 'APPID', type: sql.VarChar, value: APPID },
-        { name: 'ASSO_IDX', type: sql.Int, value: user.idx },
-        { name: 'UNAME', type: sql.VarChar, value: user.uname },
-        { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
-        { name: 'JUMIN2', type: sql.Int, value: parseInt(Emfs_IdNumberB, 10) },
-        { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
-        { name: 'FOREIGN_COUNTRY', type: sql.VarChar, value: Emfs_Nationality }        
-      ];
-      await executeQuery(Query_I, insertParams);
-
-      STEPS = '0';
-    }
-
+    const taps = [u.TAPMENU1,u.TAPMENU2,u.TAPMENU3,u.TAPMENU4,u.TAPMENU5,u.TAPMENU6,u.TAPMENU7];
+    const firstZeroIdx = taps.findIndex(v => Number(v) === 0);
+    if (firstZeroIdx >= 0) return `t${firstZeroIdx + 1}`;
+      return 't8';
+  };
+  STEPS = computeSteps(user_chk);
+}
     // ─────────────────────────────────────────
     // 4) JWT 발급
     // ─────────────────────────────────────────
@@ -602,7 +597,8 @@ const EMFS_LOGIN = async (req, res) => {
         LOGIN_IDX: user.idx,
         LOGIN_CUST_IDX: user.cust_idx,
         LOGIN_NAME: user.uname,
-        LOGIN_JUMIN1: String(Emfs_IdNumberF) + String(Emfs_IdNumberB).charAt(0),
+        LOGIN_JUMIN1: String(Emfs_IdNumberF),
+        LOGIN_GENDER:  String(Emfs_IdNumberB).charAt(0),
         APPID: APPID,
         STEPS: STEPS,
         COUNTRY_TYPE: nationalityInt,
@@ -621,10 +617,61 @@ const EMFS_LOGIN = async (req, res) => {
     });
   }
 };
-
-
 //############################################################
 //#####           E-매칭폼 준회원 체크 End                #####
+//############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####        E-매칭폼 인트라 로그인 체크 Start           ######
+//#############################################################
+const INTRA_LOGIN = async (req, res) => {
+  try {
+    const { EMFS_APPID, INTRA_MUID } = req.body;
+
+    // ─────────────────────────────────────────
+    // 1) 유효성 검사
+    // ─────────────────────────────────────────
+    if (!EMFS_APPID || !INTRA_MUID) {
+      return res.status(200).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 잘못된 접근이니다.",
+        RET_CODE: "1001"
+      });
+    }
+
+    // ─────────────────────────────────────────
+    // 1) JWT 발급
+    // ─────────────────────────────────────────
+    const secret = process.env.JWT_SECRET || 'CHANGE_ME_IN_PROD';
+    const AccessToken = jwt.sign({ APPID: EMFS_APPID }, secret, { expiresIn: "8h" });
+
+    // ─────────────────────────────────────────
+    // 2) 성공 응답
+    // ─────────────────────────────────────────
+    return res.status(200).json({
+      RET_DATA: {
+        AccessToken,
+        APPID: EMFS_APPID,
+        STEPS: '1',
+      },
+      RET_DESC: "✅ Login Success",
+      RET_CODE: "0000"
+    });
+
+  } catch (err) {
+    console.error("❌ 로그인 처리 중 오류:", err);
+    return res.status(500).json({
+      RET_DATA: null,
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000"
+    });
+  }
+};
+//############################################################
+//#####        E-매칭폼 인트라 로그인 체크 End             #####
 //############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
@@ -905,9 +952,10 @@ const EMFS_APP1 = async (req, res) => {
     // 안전한 구조분해
     const {
       Addr_Domicile_1, Addr_Domicile_2, Addr_Domicile_3, Addr_Home_1, Addr_Home_2, Addr_Home_3, Ancestral, Army, Army_Etc, 
-      BirthDay, BirthMonth, BirthType, BirthYear, Blood, Blood_Etc, Drinking, Email_1, Email_2, Glasses, Height_Txt, Live_Together, 
+      BirthDay, BirthMonth, BirthType, BirthYear, Blood, Blood_Etc, Drinking, Email_1, Email_2, Glasses, Height_Txt, Live_Together,
+      Gender, Married, Country,
       Problem_Chk, Religion, Religion_Str, Smoking, Tel_Etc_A1, Tel_Etc_A2, Tel_Etc_A3, Tel_Etc_B1, Tel_Etc_B2, Tel_Etc_B3,
-      Tel_Self, Tel_Hope1, Tel_Hope2, Tel_Hope3, Tel_Hope_Mem, Weight_Txt, Country
+      Tel_Self, Tel_Hope1, Tel_Hope2, Tel_Hope3, Tel_Hope_Mem, Tel_Hope_Mem_Etc, Weight_Txt
     } = EMFS_ITEMSCONTAINER;
 
     // 지역코드 매핑 (올바른 소스 사용)
@@ -936,36 +984,38 @@ const EMFS_APP1 = async (req, res) => {
     // 쿼리 문자열 준비 (UPDATE/INSERT 재사용)
     const UpdateSql = `
       UPDATE [baroyeon_crm].[dbo].[APPMEMBERPROFILE1]
-        SET addr_domicile  = @Addr_Domicile,
-            post_domicile  = @Post_Domicile,
-            addr_domicile1 = @Addr_Domicile1,
-            addr_domicile2 = @Addr_Domicile2,
-            addr_home      = @Addr_Home,
-            post_home      = @Post_Home,
-            addr_home1     = @Addr_Home_1,
-            addr_home2     = @Addr_Home_2,
-            ancestral      = @Ancestral,
-            army           = @Army,
-            army_Etc       = @Army_Etc,
-            birthday       = @Birthday,
-            birth_type     = @BirthType,
-            blood          = @Blood,
-            blood_Etc      = @Blood_Etc,
-            Drinking       = @Drinking,
-            email          = @Email,
-            glasses        = @Glasses,
-            height_txt     = @Height_Txt,
-            live_together  = @Live_Together,
-            problem_chk    = @Problem_Chk,
-            religion       = @Religion,
-            religion_str   = @Religion_Str,
-            smoking        = @Smoking,
-            tel_etc_a      = @Tel_Etc_A,
-            tel_etc_b      = @Tel_Etc_B,
-            tel_hand       = @Tel_Self,
-            tel_etc_c      = @Tel_Hope,
-            tel_hope_mem   = @Tel_Hope_Mem,
-            weight_txt     = @Weight_Txt
+        SET 
+            addr_domicile     = @Addr_Domicile,
+            post_domicile     = @Post_Domicile,
+            addr_domicile1    = @Addr_Domicile1,
+            addr_domicile2    = @Addr_Domicile2,
+            addr_home         = @Addr_Home,
+            post_home         = @Post_Home,
+            addr_home1        = @Addr_Home_1,
+            addr_home2        = @Addr_Home_2,
+            ancestral         = @Ancestral,
+            army              = @Army,
+            army_Etc          = @Army_Etc,
+            birthday          = @Birthday,
+            birth_type        = @BirthType,
+            blood             = @Blood,
+            blood_Etc         = @Blood_Etc,
+            Drinking          = @Drinking,
+            email             = @Email,
+            glasses           = @Glasses,
+            height_txt        = @Height_Txt,
+            live_together     = @Live_Together,
+            problem_chk       = @Problem_Chk,
+            religion          = @Religion,
+            religion_str      = @Religion_Str,
+            smoking           = @Smoking,
+            tel_etc_a         = @Tel_Etc_A,
+            tel_etc_b         = @Tel_Etc_B,
+            tel_hand          = @Tel_Self,
+            tel_etc_c         = @Tel_Hope,
+            tel_hope_mem      = @Tel_Hope_Mem,
+            tel_hope_mem_etc  = @Tel_Hope_Mem_Etc,
+            weight_txt        = @Weight_Txt
       WHERE appID = @EMFS_APPID;
     `;
 
@@ -979,7 +1029,7 @@ const EMFS_APP1 = async (req, res) => {
         birthday, birth_type, blood, blood_Etc,
         Drinking, email, glasses, height_txt,
         live_together, problem_chk, religion, religion_str, smoking,
-        tel_etc_a, tel_etc_b, tel_hand, tel_etc_c, tel_hope_mem,
+        tel_etc_a, tel_etc_b, tel_hand, tel_etc_c, tel_hope_mem, tel_hope_mem_etc,
         weight_txt
       )
       VALUES (
@@ -991,7 +1041,7 @@ const EMFS_APP1 = async (req, res) => {
         @Birthday, @BirthType, @Blood, @Blood_Etc,
         @Drinking, @Email, @Glasses, @Height_Txt,
         @Live_Together, @Problem_Chk, @Religion, @Religion_Str, @Smoking,
-        @Tel_Etc_A, @Tel_Etc_B, @Tel_Self, @Tel_Hope, @Tel_Hope_Mem,
+        @Tel_Etc_A, @Tel_Etc_B, @Tel_Self, @Tel_Hope, @Tel_Hope_Mem, @Tel_Hope_Mem_Etc,
         @Weight_Txt
       );
     `;
@@ -1000,47 +1050,38 @@ const EMFS_APP1 = async (req, res) => {
     let QueryApp = exists ? UpdateSql : InsertSql;
 
     const params = [
-      { name: 'EMFS_APPID',     type: sql.VarChar, value: EMFS_APPID },
-
-      { name: 'Addr_Domicile',  type: sql.VarChar, value: Addr_Domicile ?? null },
-      { name: 'Post_Domicile',  type: sql.VarChar, value: Addr_Domicile_1 ?? null },
-      { name: 'Addr_Domicile1', type: sql.VarChar, value: Addr_Domicile_2 ?? null },
-      { name: 'Addr_Domicile2', type: sql.VarChar, value: Addr_Domicile_3 ?? null },
-
-      { name: 'Addr_Home',      type: sql.VarChar, value: Addr_Home ?? null },
-      { name: 'Post_Home',      type: sql.VarChar, value: Addr_Home_1 ?? null },
-      { name: 'Addr_Home_1',    type: sql.VarChar, value: Addr_Home_2 ?? null },
-      { name: 'Addr_Home_2',    type: sql.VarChar, value: Addr_Home_3 ?? null },
-
-      { name: 'Ancestral',      type: sql.VarChar, value: Ancestral ?? null },
-
-      { name: 'Army',           type: sql.VarChar, value: Army ?? null },
-      { name: 'Army_Etc',       type: sql.VarChar, value: Army_Etc ?? null },
-
-      { name: 'Birthday',       type: sql.Int, value: birthday ?? null },
-      { name: 'BirthType',      type: sql.Int, value: BirthType ?? null },
-
-      { name: 'Blood',          type: sql.VarChar, value: Blood ?? null },
-      { name: 'Blood_Etc',      type: sql.VarChar, value: Blood_Etc ?? null },
-
-      { name: 'Drinking',       type: sql.VarChar, value: Drinking ?? null },
-      { name: 'Email',          type: sql.VarChar, value: email ?? null },
-      { name: 'Glasses',        type: sql.VarChar, value: Glasses ?? null },
-      { name: 'Height_Txt',     type: sql.VarChar, value: Height_Txt ?? null },
-
-      { name: 'Live_Together',  type: sql.VarChar, value: Live_Together ?? null },
-      { name: 'Problem_Chk',    type: sql.VarChar, value: Problem_Chk ?? null },
-      { name: 'Religion',       type: sql.VarChar, value: Religion ?? null },
-      { name: 'Religion_Str',   type: sql.VarChar, value: Religion_Str ?? null },
-      { name: 'Smoking',        type: sql.VarChar, value: Smoking ?? null },
-
-      { name: 'Tel_Etc_A',      type: sql.VarChar, value: telEtcA ?? null },
-      { name: 'Tel_Etc_B',      type: sql.VarChar, value: telEtcB ?? null },
-      { name: 'Tel_Self',       type: sql.VarChar, value: Tel_Self ?? null },
-      { name: 'Tel_Hope',       type: sql.VarChar, value: telHope ?? null },
-      { name: 'Tel_Hope_Mem',   type: sql.Int, value: Tel_Hope_Mem ?? null },
-
-      { name: 'Weight_Txt',     type: sql.VarChar, value: Weight_Txt ?? null },
+      { name: 'EMFS_APPID',         type: sql.VarChar,  value: EMFS_APPID },
+      { name: 'Addr_Domicile',      type: sql.VarChar,  value: Addr_Domicile ?? null },
+      { name: 'Post_Domicile',      type: sql.VarChar,  value: Addr_Domicile_1 ?? null },
+      { name: 'Addr_Domicile1',     type: sql.VarChar,  value: Addr_Domicile_2 ?? null },
+      { name: 'Addr_Domicile2',     type: sql.VarChar,  value: Addr_Domicile_3 ?? null },
+      { name: 'Addr_Home',          type: sql.VarChar,  value: Addr_Home ?? null },
+      { name: 'Post_Home',          type: sql.VarChar,  value: Addr_Home_1 ?? null },
+      { name: 'Addr_Home_1',        type: sql.VarChar,  value: Addr_Home_2 ?? null },
+      { name: 'Addr_Home_2',        type: sql.VarChar,  value: Addr_Home_3 ?? null },
+      { name: 'Ancestral',          type: sql.VarChar,  value: Ancestral ?? null },
+      { name: 'Army',               type: sql.VarChar,  value: Army ?? null },
+      { name: 'Army_Etc',           type: sql.VarChar,  value: Army_Etc ?? null },
+      { name: 'Birthday',           type: sql.Int,      value: birthday ?? null },
+      { name: 'BirthType',          type: sql.Int,      value: BirthType ?? null },
+      { name: 'Blood',              type: sql.VarChar,  value: Blood ?? null },
+      { name: 'Blood_Etc',          type: sql.VarChar,  value: Blood_Etc ?? null },
+      { name: 'Drinking',           type: sql.VarChar,  value: Drinking ?? null },
+      { name: 'Email',              type: sql.VarChar,  value: email ?? null },
+      { name: 'Glasses',            type: sql.VarChar,  value: Glasses ?? null },
+      { name: 'Height_Txt',         type: sql.VarChar,  value: Height_Txt ?? null },
+      { name: 'Live_Together',      type: sql.VarChar,  value: Live_Together ?? null },
+      { name: 'Problem_Chk',        type: sql.VarChar,  value: Problem_Chk ?? null },
+      { name: 'Religion',           type: sql.VarChar,  value: Religion ?? null },
+      { name: 'Religion_Str',       type: sql.VarChar,  value: Religion_Str ?? null },
+      { name: 'Smoking',            type: sql.VarChar,  value: Smoking ?? null },
+      { name: 'Tel_Etc_A',          type: sql.VarChar,  value: telEtcA ?? null },
+      { name: 'Tel_Etc_B',          type: sql.VarChar,  value: telEtcB ?? null },
+      { name: 'Tel_Self',           type: sql.VarChar,  value: Tel_Self ?? null },
+      { name: 'Tel_Hope',           type: sql.VarChar,  value: telHope ?? null },
+      { name: 'Tel_Hope_Mem',       type: sql.Int,      value: Tel_Hope_Mem ?? null },
+      { name: 'Tel_Hope_Mem_Etc',   type: sql.VarChar,  value: Tel_Hope_Mem_Etc ?? null },
+      { name: 'Weight_Txt',         type: sql.VarChar,  value: Weight_Txt ?? null },
     ];
 
     try {
@@ -1055,18 +1096,16 @@ const EMFS_APP1 = async (req, res) => {
     }
 
     const MemUpdateChk = `
-      UPDATE [baroyeon_crm].[dbo].[APPMEMBER]
-        SET TAPMENU1 = '1'
-      WHERE appID = @EMFS_APPID;
-
-      UPDATE [baroyeon_crm].[dbo].[APPMEMBER]
-        SET foreign_country = @Country 
+      UPDATE [baroyeon_crm].[dbo].[APPMEMBER] 
+        SET sex = @Gender, married = @Married, foreign_country = @Country, TAPMENU1 = '1'
       WHERE APPID = @EMFS_APPID;
     `;
     await executeQuery(MemUpdateChk, 
       [
-        { name: 'EMFS_APPID', type: sql.VarChar, value: EMFS_APPID },
-        { name: 'Country', type: sql.NVarChar, value: Country }
+        { name: 'EMFS_APPID',   type: sql.VarChar, value: EMFS_APPID },
+        { name: 'Gender',       type: sql.Int, value: Gender },
+        { name: 'Married',      type: sql.Int, value: Married },
+        { name: 'Country',      type: sql.VarChar, value: Country }
       ]
     );
 
@@ -1104,9 +1143,9 @@ const EMFS_APP1_SEL = async (req, res) => {
     const Query = `
       SELECT
         A.Addr_Domicile, A.Post_Domicile, A.Addr_Domicile1, A.Addr_Domicile2, A.Addr_Home, A.Post_Home, A.Addr_Home1, A.Addr_Home2,
-        A.Ancestral, A.Army, A.Army_Etc, A.Birthday, A.Birth_type, A.Blood, A.Blood_Etc, A.Drinking, A.Email, A.Glasses, 
+        A.Ancestral, A.Army, A.Army_Etc, A.Birthday, A.Birth_type, B.Jumin1, A.Blood, A.Blood_Etc, A.Drinking, A.Email, A.Glasses, 
         A.Height_Txt, A.Live_Together, A.Problem_Chk, A.Religion, A.Religion_Str, A.Smoking, 
-        A.Tel_Etc_A, A.Tel_Etc_B, A.Tel_Hand, A.Tel_Etc_C, A.Tel_Hope_Mem, A.Weight_Txt,
+        A.Tel_Etc_A, A.Tel_Etc_B, A.Tel_Hand, A.Tel_Etc_C, A.Tel_Hope_Mem, A.Tel_Hope_Mem_Etc, A.Weight_Txt,
         B.Uname, B.Sex, B.Married, B.Foreign_Type, B.Foreign_Country
       FROM [baroyeon_crm].[dbo].[APPMEMBERPROFILE1] AS A LEFT JOIN [baroyeon_crm].[dbo].[APPMEMBER] AS B ON A.APPID = B.APPID
       WHERE A.APPID = @EMFS_APPID
@@ -1888,6 +1927,24 @@ const EMFS_APP4 = async (req, res) => {
       { name: 'F02_School_Name', type: sql.VarChar, value: F02_School_Name ?? null },
     ];
 
+
+    const joinSchoolCode = (cRaw, gRaw) => {
+      const c = String(cRaw ?? '').trim();
+      const g = String(gRaw ?? '').trim();
+    
+      // 앞코드가 없거나 '0'이면 저장하지 않음
+      if (!c || c === '0') return null;
+    
+      // 미취학(8), 기타(10): G가 '0'이어도 유효
+      if (c === '8' || c === '10') {
+        return Number(`${c}${g || '0'}`); // '8'+'0' → 80, '10'+'0' → 100
+      }
+    
+      // 그 외: G도 반드시 유효
+      if (!g || g === '0') return null;
+      return Number(`${c}${g}`); // 예: '5'+'1' → 51, '10'+'5' → 105
+    }
+
     // 형제/자매 f03~f05
     [['F03',0],['F04',1],['F05',2]].forEach(([prefix, i]) => {
       Params2.push(
@@ -1898,7 +1955,7 @@ const EMFS_APP4 = async (req, res) => {
         { name: `${prefix}_Married`,     type: sql.VarChar, value: S(i, 'F_Married') ?? null },
         { name: `${prefix}_Name`,        type: sql.VarChar, value: S(i, 'F_Name') ?? null },
         { name: `${prefix}_Relation`,    type: sql.Int, value: S(i, 'F_Relation') ?? null },
-        { name: `${prefix}_School_Code`, type: sql.Int, value: S(i, 'F_School_Code') ?? null },
+        { name: `${prefix}_School_Code`, type: sql.Int, value: (() => joinSchoolCode(S(i,'F_School_Code'), S(i,'F_School_CodeG')))() },
         { name: `${prefix}_School_Name`, type: sql.VarChar, value: S(i, 'F_School_Name') ?? null },
       );
     });
@@ -1911,7 +1968,7 @@ const EMFS_APP4 = async (req, res) => {
         { name: `${prefix}_Live_With`,   type: sql.VarChar, value: C(i, 'C_Live_With') ?? null },
         { name: `${prefix}_Married`,     type: sql.VarChar, value: C(i, 'C_Married') ?? null },
         { name: `${prefix}_Name`,        type: sql.VarChar, value: C(i, 'C_Name') ?? C(i, 'C_Type') ?? null },
-        { name: `${prefix}_School_Code`, type: sql.Int, value: C(i, 'C_School_Code') ?? null },
+        { name: `${prefix}_School_Code`, type: sql.Int, value: (() => joinSchoolCode(C(i,'C_School_Code'), C(i,'C_School_CodeG')))() },
         { name: `${prefix}_School_Name`, type: sql.VarChar, value: C(i, 'C_School_Name') ?? null },
         { name: `${prefix}_Sex`,         type: sql.Int, value: C(i, 'C_Sex') ?? null },
         { name: `${prefix}_Type1`,       type: sql.VarChar, value: C(i, 'C_Type1') ?? null },
@@ -1935,7 +1992,7 @@ const EMFS_APP4 = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[EMFS_APP4] Error:', err);
+    console.error('가족 등록 오류 [EMFS_APP4] Error:', err);
     return res.status(500).json({
       RET_STAT: 'error',
       RET_DESC: '❌ 서버 오류 발생',
@@ -1968,7 +2025,13 @@ const EMFS_APP4_SEL = async (req, res) => {
         )
       );
     
-    const isEmpty = (obj) => Object.keys(obj).length === 0;
+    // const isEmpty = (obj) => Object.keys(obj).length === 0;
+    function isEmpty(obj) {
+      if (!obj) return true;
+      if (Array.isArray(obj)) return obj.length === 0;
+      if (typeof obj === 'object') return Object.keys(obj).length === 0;
+      return false;
+    }
 
 
     // 1) 요약(프로필1)
@@ -2025,6 +2088,16 @@ const EMFS_APP4_SEL = async (req, res) => {
       executeQuery(FAM_QUERY, params),
     ]);
 
+    // 안전 분리 유틸(공용)
+    const splitSchoolCode = (raw) => {
+      const s = String(raw ?? '').trim();
+      if (!s) return { code: null, codeG: null };
+      if (s.startsWith('10')) {
+        return { code: '10', codeG: s.charAt(2) || null };
+      }
+      return { code: s.charAt(0) || null, codeG: s.charAt(1) || null };
+    }
+
     const P1 = Array.isArray(p1Res?.recordset) ? p1Res.recordset[0] : (Array.isArray(p1Res) ? p1Res[0] : null);
     const famRow = Array.isArray(famRes?.recordset) ? famRes.recordset[0] : (Array.isArray(famRes) ? famRes[0] : null);
 
@@ -2063,6 +2136,7 @@ const EMFS_APP4_SEL = async (req, res) => {
 
     if (famRow) {
       // F03
+      const { code: f03code, codeG: f03codeG } = splitSchoolCode(famRow?.f03_school_code);
       const f03 = compact({
         F_Age:          famRow.f03_age,
         F_Job:          famRow.f03_job,
@@ -2071,12 +2145,14 @@ const EMFS_APP4_SEL = async (req, res) => {
         F_Married:      famRow.f03_married,
         F_Name:         famRow.f03_name,
         F_Relation:     famRow.f03_relation,
-        F_School_Code:  famRow.f03_school_code,
+        F_School_Code:  f03code,
+        F_School_CodeG:  f03codeG,
         F_School_Name:  famRow.f03_school_name,
       });
       if (!isEmpty(f03)) Familycations.push(f03);
 
       // F04
+      const { code: f04code, codeG: f04codeG } = splitSchoolCode(famRow?.f04_school_code);
       const f04 = compact({
         F_Age:          famRow.f04_age,
         F_Job:          famRow.f04_job,
@@ -2085,12 +2161,14 @@ const EMFS_APP4_SEL = async (req, res) => {
         F_Married:      famRow.f04_married,
         F_Name:         famRow.f04_name,
         F_Relation:     famRow.f04_relation,
-        F_School_Code:  famRow.f04_school_code,
+        F_School_Code:  f04code,
+        F_School_CodeG:  f04codeG,
         F_School_Name:  famRow.f04_school_name,
       });
       if (!isEmpty(f04)) Familycations.push(f04);
 
       // F05
+      const { code: f05code, codeG: f05codeG } = splitSchoolCode(famRow?.f05_school_code);
       const f05 = compact({
         F_Age:          famRow.f05_age,
         F_Job:          famRow.f05_job,
@@ -2099,19 +2177,22 @@ const EMFS_APP4_SEL = async (req, res) => {
         F_Married:      famRow.f05_married,
         F_Name:         famRow.f05_name,
         F_Relation:     famRow.f05_relation,
-        F_School_Code:  famRow.f05_school_code,
+        F_School_Code:  f05code,
+        F_School_CodeG:  f05codeG,
         F_School_Name:  famRow.f05_school_name,
       });
       if (!isEmpty(f05)) Familycations.push(f05);
 
       // C01
+      const { code: code01, codeG: codeG01 } = splitSchoolCode(famRow?.c01_school_code);
       const c01 = compact({
         C_Age:          famRow.c01_age,
         C_Job:          famRow.c01_job,
         C_Live_With:    famRow.c01_live_with,
         C_Married:      famRow.c01_married,
         C_Name:         famRow.c01_name,
-        C_School_Code:  famRow.c01_school_code,
+        C_School_Code:  code01,
+        C_School_CodeG: codeG01,
         C_School_Name:  famRow.c01_school_name,
         C_Sex:          famRow.c01_sex,
         C_Type1:        famRow.c01_type1,
@@ -2121,13 +2202,15 @@ const EMFS_APP4_SEL = async (req, res) => {
       if (!isEmpty(c01)) Childcations.push(c01);
 
       // C02
+      const { code: code02, codeG: codeG02 } = splitSchoolCode(famRow?.c02_school_code);
       const c02 = compact({
         C_Age:          famRow.c02_age,
         C_Job:          famRow.c02_job,
         C_Live_With:    famRow.c02_live_with,
         C_Married:      famRow.c02_married,
         C_Name:         famRow.c02_name,
-        C_School_Code:  famRow.c02_school_code,
+        C_School_Code:  code02,
+        C_School_CodeG: codeG02,
         C_School_Name:  famRow.c02_school_name,
         C_Sex:          famRow.c02_sex,
         C_Type1:        famRow.c02_type1,
@@ -2137,13 +2220,15 @@ const EMFS_APP4_SEL = async (req, res) => {
       if (!isEmpty(c02)) Childcations.push(c02);
 
       // C03
+      const { code: code03, codeG: codeG03 } = splitSchoolCode(famRow?.c03_school_code);
       const c03 = compact({
         C_Age:          famRow.c03_age,
         C_Job:          famRow.c03_job,
         C_Live_With:    famRow.c03_live_with,
         C_Married:      famRow.c03_married,
         C_Name:         famRow.c03_name,
-        C_School_Code:  famRow.c03_school_code,
+        C_School_Code:  code03,
+        C_School_CodeG: codeG03,
         C_School_Name:  famRow.c03_school_name,
         C_Sex:          famRow.c03_sex,
         C_Type1:        famRow.c03_type1,
@@ -2295,7 +2380,7 @@ const EMFS_APP5 = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[EMFS_APP5] Error:', err);
+    console.error('희망상대 등록 오류 [EMFS_APP5] Error:', err);
     return res.status(500).json({
       RET_STAT: 'error',
       RET_DESC: '❌ 서버 오류 발생',
@@ -2524,7 +2609,7 @@ const EMFS_APP6 = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error(`추가정보 등록 오류 [EMFS_APP6] Error:`, err);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -2685,7 +2770,7 @@ const EMFS_APP7 = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('[EMFS_APP7] Error:', err);
+    console.error('사진등록 등록 오류 [EMFS_APP7] Error:', err);
     return res.status(500).json({
       RET_STAT: 'error',
       RET_DESC: '❌ 서버 오류 발생',
@@ -2776,6 +2861,7 @@ module.exports = {
   EMFS_JOB, 
   EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES, EMFS_IMPORTANT, EMFS_FILEUPLOAD, EMFS_FILEDELETE,
   EMFS_LOGIN, 
+  INTRA_LOGIN,
   EMFS_AGREE, EMFS_AGREE_SEL,
   EMFS_APP,
   EMFS_APP1, EMFS_APP1_SEL,

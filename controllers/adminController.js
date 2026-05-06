@@ -2222,7 +2222,7 @@ const POPUP_DETAIL = async (req, res) => {
   try {
     const { popup_idx } = req.body;
     const Query = ` SELECT PA.IDX, PA.TITLE, PA.TARGET_URL, PA.FILE_KEY, PA.START_DATE, PA.END_DATE,
-                          PA.POPUP_AREA, PA.SHOW_DAY, PA.IS_ACTIVE, PA.POPUP_CLOSE_COLOR, PA.CREATE_AT,
+                          PA.POPUP_AREA, PA.SHOW_DAY, PA.IS_ACTIVE, PA.POPUP_CLOSE_CL, PA.CREATE_AT,
                           FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
                     FROM POPUP_ACTIVE PA
                     LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
@@ -2286,9 +2286,9 @@ const POPUP_REGIST = async (req, res) => {
   try {
     const {
       POPUP_TITLE, POPUP_TARGET_URL, POPUP_FILE_KEY, POPUP_START, POPUP_END, POPUP_AREA, POPUP_SHOW_DAY,
-      POPUP_ACTIVE, POPUP_CLOSE_COLOR, POPUP_CREATE_AT } = req.body;
-    const Query = ` INSERT INTO POPUP_ACTIVE (TITLE, TARGET_URL, FILE_KEY, START_DATE, END_DATE, POPUP_AREA, SHOW_DAY, IS_ACTIVE, POPUP_CLOSE_COLOR, CREATE_AT) 
-                    VALUES (@POPUP_TITLE, @POPUP_TARGET_URL, @POPUP_FILE_KEY, @POPUP_START, @POPUP_END, @POPUP_AREA, @POPUP_SHOW_DAY, @POPUP_ACTIVE, @POPUP_CLOSE_COLOR, @POPUP_CREATE_AT) `;
+      POPUP_ACTIVE, POPUP_CLOSE_CL, POPUP_CREATE_AT } = req.body;
+    const Query = ` INSERT INTO POPUP_ACTIVE (TITLE, TARGET_URL, FILE_KEY, START_DATE, END_DATE, POPUP_AREA, SHOW_DAY, IS_ACTIVE, POPUP_CLOSE_CL, CREATE_AT) 
+                    VALUES (@POPUP_TITLE, @POPUP_TARGET_URL, @POPUP_FILE_KEY, @POPUP_START, @POPUP_END, @POPUP_AREA, @POPUP_SHOW_DAY, @POPUP_ACTIVE, @POPUP_CLOSE_CL, @POPUP_CREATE_AT) `;
 
     const params = [
       { name: 'POPUP_TITLE', type: sql.VarChar, value: POPUP_TITLE },
@@ -2299,7 +2299,7 @@ const POPUP_REGIST = async (req, res) => {
       { name: 'POPUP_AREA', type: sql.Char, value: POPUP_AREA },
       { name: 'POPUP_SHOW_DAY', type: sql.Char, value: POPUP_SHOW_DAY },
       { name: 'POPUP_ACTIVE', type: sql.Char, value: POPUP_ACTIVE },
-      { name: 'POPUP_CLOSE_COLOR', type: sql.VarChar, value: POPUP_CLOSE_COLOR },
+      { name: 'POPUP_CLOSE_CL', type: sql.VarChar, value: POPUP_CLOSE_CL },
       { name: 'POPUP_CREATE_AT', type: sql.DateTime, value: POPUP_CREATE_AT }
     ];
 
@@ -2330,10 +2330,10 @@ const POPUP_REGIST = async (req, res) => {
 //#############################################################
 const POPUP_UPDATE = async (req, res) => {
   try {
-    const { POPUP_TITLE, POPUP_TARGET_URL, POPUP_START, POPUP_END, POPUP_AREA, POPUP_SHOW_DAY, POPUP_ACTIVE, POPUP_CLOSE_COLOR, POPUP_Idx } = req.body;
+    const { POPUP_TITLE, POPUP_TARGET_URL, POPUP_START, POPUP_END, POPUP_AREA, POPUP_SHOW_DAY, POPUP_ACTIVE, POPUP_CLOSE_CL, POPUP_Idx } = req.body;
     const Query = ` UPDATE POPUP_ACTIVE SET 
                       TITLE = @POPUP_TITLE, TARGET_URL = @POPUP_TARGET_URL, START_DATE = @POPUP_START, END_DATE = @POPUP_END, 
-                      POPUP_AREA = @POPUP_AREA, SHOW_DAY = @POPUP_SHOW_DAY, IS_ACTIVE = @POPUP_ACTIVE, POPUP_CLOSE_COLOR = @POPUP_CLOSE_COLOR                      
+                      POPUP_AREA = @POPUP_AREA, SHOW_DAY = @POPUP_SHOW_DAY, IS_ACTIVE = @POPUP_ACTIVE, POPUP_CLOSE_CL = @POPUP_CLOSE_CL                      
                     WHERE IDX = @POPUP_Idx `;
     const params = [
       { name: 'POPUP_TITLE', type: sql.VarChar, value: POPUP_TITLE },
@@ -2343,7 +2343,7 @@ const POPUP_UPDATE = async (req, res) => {
       { name: 'POPUP_AREA', type: sql.Char, value: POPUP_AREA },
       { name: 'POPUP_SHOW_DAY', type: sql.Char, value: POPUP_SHOW_DAY },
       { name: 'POPUP_ACTIVE', type: sql.Char, value: POPUP_ACTIVE },
-      { name: 'POPUP_CLOSE_COLOR', type: sql.VarChar, value: POPUP_CLOSE_COLOR },
+      { name: 'POPUP_CLOSE_CL', type: sql.VarChar, value: POPUP_CLOSE_CL },
       { name: 'POPUP_Idx', type: sql.Int, value: POPUP_Idx }
     ];
     await executeQuery(Query, params);
@@ -2724,6 +2724,419 @@ const SEO_DELETE = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####           직원 리스트 (Employee) List Start         #####
+//#############################################################
+const EMPLOYEE_SELECT = async (req, res) => {
+  try {
+    const {
+      numPage = 1,
+      TotalPage = 20,
+      sel_sch_col = '',
+      txt_sch_word = '',
+      sch_quit_chk = 'N',
+      sch_dept = '',
+      sch_inY = '',
+      sch_inM = '',
+      sch_jisa = '1'
+    } = req.body || {};
+
+    const pageSize = parseInt(TotalPage, 10) || 20;
+    const page = parseInt(numPage, 10) || 1;
+    const startRow = (page - 1) * pageSize + 1;
+    const endRow = page * pageSize;
+
+    const whereParts = [
+      "emp_group <> 9",
+      "seq > 7",
+      "seq NOT IN (1001, 1002, 1003, 1004)",
+      "network = @network"
+    ];
+
+    const params = [
+      { name: 'network', type: sql.VarChar, value: sch_jisa }
+    ];
+
+    if (sel_sch_col && txt_sch_word) {
+      const cleaned = String(txt_sch_word).replace(/'/g, '');
+      if (sel_sch_col === 'emp_nm') {
+        whereParts.push("emp_nm LIKE '%' + @search + '%'");
+      } else if (sel_sch_col === 'emp_id') {
+        whereParts.push("emp_id LIKE '%' + @search + '%'");
+      }
+
+      params.push({ name: 'search', type: sql.NVarChar, value: cleaned });
+    }
+
+    if (sch_quit_chk && sch_quit_chk !== 'A') {
+      whereParts.push("quit_chk = @quit_chk");
+      params.push({ name: 'quit_chk', type: sql.VarChar, value: sch_quit_chk });
+    }
+
+    if (sch_dept) {
+      whereParts.push("dept_cd = @dept_cd");
+      params.push({ name: 'dept_cd', type: sql.VarChar, value: sch_dept });
+    }
+
+    if (sch_inY || sch_inM) {
+      if (sch_quit_chk !== 'Y') {
+        whereParts.push("ISNULL(ins_day, '') <> ''");
+        if (sch_inY) {
+          whereParts.push("SUBSTRING(ins_day, 1, 4) = @iy");
+          params.push({ name: 'iy', type: sql.VarChar, value: String(sch_inY) });
+        }
+        if (sch_inM) {
+          whereParts.push("SUBSTRING(ins_day, 6, 2) = @im");
+          params.push({ name: 'im', type: sql.VarChar, value: String(sch_inM).padStart(2, '0') });
+        }
+      } else { // 퇴사자
+        whereParts.push("quit_day IS NOT NULL");
+        if (sch_inY) {
+          whereParts.push("SUBSTRING(CONVERT(VARCHAR(20), quit_day, 21), 1, 4) = @qy");
+          params.push({ name: 'qy', type: sql.VarChar, value: String(sch_inY) });
+        }
+        if (sch_inM) {
+          whereParts.push("SUBSTRING(CONVERT(VARCHAR(20), quit_day, 21), 6, 2) = @qm");
+          params.push({ name: 'qm', type: sql.VarChar, value: String(sch_inM).padStart(2, '0') });
+        }
+      }
+    }
+
+    const whereClause = `WHERE ${whereParts.join(' AND ')}`;
+
+    const Query_Total = `
+      SELECT COUNT(*) AS TOTAL_CNT
+      FROM [baroyeon_intra].[dbo].view_EmpLIst
+      ${whereClause}
+    `;
+
+    const Query = `
+      WITH EMP AS (
+        SELECT
+          ROW_NUMBER() OVER (ORDER BY ins_day DESC, seq DESC)AS RowNum,
+          seq, emp_id, emp_nm, dept_cd, clss_cd, duty_cd,
+          emp_tel, emp_hp, emp_email, ins_day, quit_chk, quit_day,
+          emp_photo, photo_Name, emp_tel2, network, emp_nm_real
+        FROM [baroyeon_intra].[dbo].view_EmpLIst
+        ${whereClause}
+      )
+      SELECT *
+      FROM EMP
+      WHERE RowNum BETWEEN @startRow AND @endRow
+      ORDER BY RowNum ASC
+    `;
+
+    const pageParams = [
+      ...params,
+      { name: 'startRow', type: sql.Int, value: startRow },
+      { name: 'endRow', type: sql.Int, value: endRow }
+    ];
+
+    const [rows, totalRes] = await Promise.all([
+      executeQuery(Query, pageParams),
+      executeQuery(Query_Total, params)
+    ]);
+
+    const totalCount = totalRes[0]?.TOTAL_CNT ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+    // ---- 사번(지사코드 + zero-padding) 계산 ----
+    const codeMap = { "1": "B", "2": "P", "3": "D", "4": "C", "5": "H", "6": "S", "7": "" };
+    const data = rows.map(r => {
+      const letter = codeMap[String(r.network)] ?? '';
+      const seqStr = String(r.seq ?? '').padStart(5, '0');
+      const empno = `${letter}${seqStr}`;
+      return { ...r, empno };
+    });
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: data,
+      PAGE_INFO: {
+        page,
+        pageSize,
+        startRow,
+        endRow,
+        totalCount,
+        totalPages
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####          직원 리스트 (Employee) List End           #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####       출/퇴근 - 일별 리스트 (Attendance) Start      #####
+//#############################################################
+const ATTENDANCE_DAILY_SELECT = async (req, res) => {
+  try {
+    const {
+      schDate,
+      emp_name = '',
+      sch_dept = '',
+      sch_jisa = '1',
+      emp_seq = ''
+    } = req.body || {};
+
+    const baseDate = (schDate && String(schDate).slice(0, 10)) || new Date().toISOString().slice(0, 10);
+
+    const whereParts = [
+      "((a.Quit_chk = 'N' AND a.ins_day <= @schDate) OR (a.Quit_chk = 'Y' AND a.Quit_day >= @schDate))",
+      "(a.dept_cd <> '19000' OR a.emp_nm = N'김영훈')",
+      "a.emp_nm NOT IN (N'김희성', N'세븐', N'자동분배', N'테스트', N'하이애드', N'BARO', N'BI외주', N'KIFR', N'TEST', N'더피플', N'라미체', N'블리비', N'icmo', N'master')",
+      "a.network = @network"
+    ];
+
+    const params = [
+      { name: 'schDate', type: sql.VarChar, value: baseDate },
+      { name: 'network', type: sql.VarChar, value: String(sch_jisa) }
+    ];
+
+    if (String(sch_jisa) !== '1') {
+      whereParts.push("a.seq NOT IN (1001, 1002, 1003, 1004, 1005)");
+    }
+
+    if (String(emp_seq) === '309') {
+      whereParts.push("a.dept_cd IN ('13000')");
+    } else {
+      if (String(sch_dept) === '1') {
+        whereParts.push("a.dept_cd IN ('11000', '12000')");
+      } else if (String(sch_dept) === '2') {
+        whereParts.push("a.dept_cd IN ('13000')");
+      } else if (String(sch_dept) === '3') {
+        whereParts.push("a.dept_cd NOT IN ('11000', '12000', '13000')");
+      }
+    }
+
+    if (emp_name) {
+      whereParts.push("a.emp_nm = @emp_nm");
+      params.push({ name: 'emp_nm', type: sql.NVarChar, value: String(emp_name).replace(/'/g, '') });
+    }
+
+    const whereClause = `WHERE ${whereParts.join(' AND ')}`;
+
+    const Query = `
+      WITH subAbs AS (
+        SELECT user_id, Ab_date,
+          MIN(tbl_Code) AS tbl_Code,
+          MIN(register_Date) AS register_Date,
+          MIN(Ab_Item) AS Ab_Item
+        FROM [baroyeon_intra].[dbo].Tm_Absence
+        GROUP BY user_id, Ab_date
+      )
+      SELECT
+        a.seq, a.network, a.emp_id, a.emp_nm, a.dept_cd, b.user_depart,
+        ISNULL(CONVERT(VARCHAR(5), b.User_InputDate, 108), '') AS user_InputDate,
+        ISNULL(CONVERT(VARCHAR(5), b.user_outdate, 108), '') AS user_outdate,
+        ISNULL(b.User_Note, '') AS User_Note,
+        ISNULL(CONVERT(VARCHAR(10), b.Ab_date, 23), @schDate) AS Ab_date,
+        ISNULL(b.Ab_item, 100) AS Ab_item,
+        ISNULL(b.user_Reason, '') AS user_Reason,
+        ISNULL(b.Ab_Code, CASE WHEN ISNULL(b.Ab_Code,'') = '' THEN c.tbl_Code ELSE '' END) AS Ab_Code,
+        CASE WHEN ISNULL(b.Ab_Code,'') = '' THEN c.register_Date ELSE NULL END AS register_Date,
+        CASE WHEN ISNULL(b.Ab_Code,'') = '' THEN c.Ab_Item       ELSE NULL END AS register_Ab_Item
+      FROM [baroyeon_intra].[dbo].view_EmpLIst a
+      LEFT JOIN [baroyeon_intra].[dbo].TM_Inwork b 
+        ON b.User_id = a.emp_id
+        AND b.AB_Date = @schDate
+      LEFT JOIN subAbs c
+        ON c.user_id = a.emp_id
+        AND c.Ab_date = @schDate
+        AND ISNULL(b.Ab_Code, '') = ''
+      ${whereClause}
+      ORDER BY      
+        ISNULL(CONVERT(VARCHAR(10), b.Ab_date, 23), @schDate) ASC,
+        CASE WHEN ISNULL(b.Ab_item, 100) IN (0) THEN 0 ELSE 1 END ASC,  
+        CASE WHEN ISNULL(b.Ab_item, 100) <> 0 AND b.User_InputDate IS NULL THEN 1 ELSE 0 END, 
+        b.User_InputDate ASC,
+        a.emp_nm ASC
+    `;
+
+    const rows = await executeQuery(Query, params);
+
+    const regLabel = (code) => {
+      switch (Number(code)) {
+        case 40: return '오전반차';
+        case 41: return '오후반차';
+        case 20: return '월차';
+        case 10: return '연차';
+        default: return '-';
+      }
+    };
+
+    const data = rows.map(r => ({
+      ...r,
+      Ab_item: r.Ab_item == null ? 100 : Number(r.Ab_item),
+      register_Ab_Item_Label: regLabel(r.register_Ab_Item)
+    }));
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: data
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####        출/퇴근 - 일별 리스트 (Attendance) End        #####
+//#############################################################
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####       출/퇴근 - 월별 리스트 (Attendance) Start      #####
+//#############################################################
+const ATTENDANCE_MONTHLY_SELECT = async (req, res) => {
+  try {
+    const {
+      user_id = '',
+      s_year,
+      s_mon
+    } = req.body || {};
+
+    const y = parseInt(String(s_year), 10);
+    const m = parseInt(String(s_mon), 10);
+
+    const params = [
+      { name: 'user_id', type: sql.VarChar, value: String(user_id) },
+      { name: 'yy', type: sql.Int, value: y },
+      { name: 'mm', type: sql.Int, value: m },
+    ];
+
+    const Query = `
+      DECLARE @START DATE = CAST(CAST(@yy AS CHAR(4)) + '-' + RIGHT('0' + CAST(@mm AS VARCHAR(2)),2) + '-01' AS DATE);
+      DECLARE @END   DATE = DATEADD(DAY, -1, DATEADD(MONTH, 1, @START));
+
+      WITH Dates AS (
+        SELECT @START AS d
+        UNION ALL
+        SELECT DATEADD(DAY, 1, d) FROM Dates WHERE d < @END
+      ),
+      subAbs AS (
+        SELECT
+          a.user_id, CONVERT(date, a.Ab_date) AS Ab_date, MIN(a.tbl_Code) AS tbl_Code,
+          MIN(a.register_Date) AS register_Date, MIN(a.Ab_Item) AS Ab_Item
+        FROM [baroyeon_intra].[dbo].Tm_Absence a
+        WHERE a.user_id = @user_id
+          AND CONVERT(date, a.Ab_date) BETWEEN @START AND @END
+        GROUP BY a.user_id, CONVERT(date, a.Ab_date)
+      ),
+      inw AS (
+        SELECT
+          b.user_id, CONVERT(date, b.Ab_date) AS Ab_date, b.Ab_code, b.Ab_item,
+          b.User_inputDate, b.User_outdate, b.User_Note, b.User_Reason, b.User_depart
+        FROM [baroyeon_intra].[dbo].TM_Inwork b
+        WHERE b.user_id = @user_id
+          AND CONVERT(date, b.Ab_date) BETWEEN @START AND @END
+      )
+      SELECT
+        d.d AS Ab_date, ISNULL(i.User_depart, e.dept_cd) AS Ab_dept, e.emp_nm AS user_name, ISNULL(CONVERT(VARCHAR(5), i.User_inputDate, 108), '') AS in_time,
+        ISNULL(CONVERT(VARCHAR(5), i.User_outdate , 108), '') AS out_time, ISNULL(i.Ab_item, sa.Ab_Item) AS Ab_item_raw,
+        ISNULL(i.Ab_code, sa.tbl_Code) AS Ab_code, CASE WHEN ISNULL(i.Ab_code, sa.tbl_Code) IS NULL THEN 'N' ELSE 'Y' END AS reqYN,
+        ISNULL(i.User_Note, '') AS user_note, ISNULL(i.User_Reason, '') AS user_reason
+      FROM Dates d
+      LEFT JOIN inw i ON i.Ab_date = d.d
+      LEFT JOIN subAbs sa ON i.Ab_code IS NULL AND sa.user_id = @user_id AND sa.Ab_date = d.d
+      LEFT JOIN [baroyeon_intra].[dbo].view_EmpList e ON e.emp_id = @user_id
+      ORDER BY d.d
+      OPTION (MAXRECURSION 200);
+    `;
+
+    const rows = await executeQuery(Query, params);
+
+    const regLabel = (code) => {
+      switch (Number(code)) {
+        case 40: return '오전반차';
+        case 41: return '오후반차';
+        case 20: return '월차';
+        case 10: return '연차';
+        default: return '-';
+      }
+    };
+
+    const data = rows.map(r => {
+      const ab = r.Ab_item_raw == null ? 100 : Number(r.Ab_item_raw);
+      return {
+        Ab_date: r.Ab_date,
+        Ab_dept: r.Ab_dept,
+        user_name: r.user_name,
+        in_time: r.in_time,
+        out_time: r.out_time,
+        Ab_item: ab,
+        Ab_code: r.Ab_code || '',
+        reqYN: r.reqYN,
+        user_note: r.user_note,
+        user_reason: r.user_reason,
+        register_Ab_Item_Label: regLabel(r.Ab_item_raw)
+      };
+    });
+
+    const totals = data.reduce((acc, r) => {
+      const code = Number(r.Ab_item);
+      if ([0, 50, 70, 40, 41].includes(code)) acc.present += 1;
+      if (code === 50) acc.c50 += 1;
+      if (code === 70) acc.c70 += 1;
+      if (code === 40) acc.c40 += 1;
+      if (code === 41) acc.c41 += 1;
+      if (code === 20) acc.c20 += 1;
+      if (code === 30) acc.c30 += 1;
+      return acc;
+    }, { present: 0, c50: 0, c70: 0, c40: 0, c41: 0, c20: 0, c30: 0 });
+
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: data,
+      RET_TOTALS: {
+        출근: totals.present,
+        지각_50: totals.c50,
+        토일근무_70: totals.c70,
+        오전휴무_40: totals.c40,
+        오후휴무_41: totals.c41,
+        휴무연차_20: totals.c20,
+        결근_30: totals.c30
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+}
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####        출/퇴근 - 월별 리스트 (Attendance) End        #####
+//#############################################################
+
 module.exports = {
   ADM_LOGIN, GET_LOGIN_INFO, ADM_REGIST,
   N2N, N2N_DETAIL, N2N_REGIST, N2N_UPDATE, N2N_DELETE,
@@ -2736,6 +3149,8 @@ module.exports = {
   CAMPAIGN_SELECT, CAMPAIGN_DETAIL, CAMPAIGN_INIT_DATA, CAMPAIGN_INIT_PARENT, CAMPAIGN_REGIST, CAMPAIGN_UPDATE, CAMPAIGN_DELETE,
   SURVEY_DETAIL,
   POPUP_SELECT, POPUP_DETAIL, POPUP_REGIST, POPUP_UPDATE, POPUP_DELETE,
-  SEO_SELECT, SEO_DETAIL, SEO_REGIST, SEO_UPDATE, SEO_DELETE
+  SEO_SELECT, SEO_DETAIL, SEO_REGIST, SEO_UPDATE, SEO_DELETE,
+  EMPLOYEE_SELECT, 
+  ATTENDANCE_DAILY_SELECT, ATTENDANCE_MONTHLY_SELECT
 };
 

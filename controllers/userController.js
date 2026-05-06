@@ -3,6 +3,7 @@ const sql = require("mssql");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const axios = require('axios');
+const crypto = require('crypto');
 require("dotenv").config();
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
@@ -76,23 +77,153 @@ const KAKAO_AUTH = async (req, res, next) => {
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
+//#####                 네이버 로그인 Start                 #####
+//#############################################################
+const NAVER_AUTH = async (req, res, next) => {
+  const data = Buffer.from(JSON.stringify({
+    iat: Date.now(),
+    nonce: crypto.randomBytes(8).toString('hex')
+  })).toString('base64url');
+
+  const sig = crypto.createHmac('sha256', process.env.JWT_SECRET)
+    .update(data)
+    .digest('base64url');
+
+  const state = `${data}.${sig}`;
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.NAVER_CLIENT_ID,
+    redirect_uri: process.env.NAVER_REDIRECT_URI,
+    state,
+  });
+  
+  const authUrl = `https://nid.naver.com/oauth2.0/authorize?${params.toString()}`;
+
+  res.status(200)
+    .set('Content-Type','text/html; charset=utf-8')
+    .set('Cache-Control','no-store')
+    .send(`<!doctype html><meta charset="utf-8">
+      <script>location.replace(${JSON.stringify(authUrl)});</script>
+      <noscript><meta http-equiv="refresh" content="0;url=${authUrl}"></noscript>`);
+};
+//#############################################################
+//#####                 네이버 로그인 End                   #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####                 네이버 콜백 Start                 #####
+//#############################################################
+const NAVER_CALLBACK = async (req, res, next) => {
+  const { code, state } = req.query;
+
+  try {
+    if (!state || !state.includes('.')) return res.status(400).send('Missing state');
+
+    const [data, sig] = state.split('.');
+    const expected = crypto.createHmac('sha256', process.env.JWT_SECRET).update(data).digest('base64url');
+    if (sig !== expected) return res.status(400).send('Invalid state signature');
+
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString());
+    if (Date.now() - payload.iat > 5 * 60 * 1000) return res.status(400).send('Expired state');
+
+    const tokenRes = await axios.get('https://nid.naver.com/oauth2.0/token', {
+      params: {
+        grant_type: 'authorization_code',
+        client_id: process.env.NAVER_CLIENT_ID,
+        client_secret: process.env.NAVER_CLIENT_SECRET,
+        redirect_uri: process.env.NAVER_REDIRECT_URI,
+        code,
+        state,
+      },
+    });
+
+    const access_token = tokenRes.data?.access_token;
+    if (!access_token) return res.status(401).send('No access token from Naver');
+
+    const userRes = await axios.get('https://openapi.naver.com/v1/nid/me', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    const user = userRes.data?.response;
+    if (!user) return res.status(404).send('Naver profile missing');
+
+    let payAddress = null;
+    try {
+      const addrRes = await axios.get('https://openapi.naver.com/v1/nid/payaddress', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        },
+      });
+
+      if (addrRes.data?.result === 'success') {
+        const baseAddress = addrRes.data.data?.baseAddress ?? "";
+        const detailAddress = addrRes.data.data?.detailAddress ?? "";
+        if (baseAddress) payAddress = `${baseAddress} ${detailAddress}`;
+      }
+    } catch (e) {
+      console.warn('Naver Pay address fetch skipped: ', e.response?.status, e.response?.data);
+    }
+
+    const safeUser = {
+      id: String(user.id),
+      name: user.name ?? '미공개',
+      email: user.email ?? '',
+      gender: user.gender === 'M' ? 'male' : user.gender === 'F' ? 'female' : '',
+      birthyear: user.birthyear ?? '',
+      birthday: (user.birthday || '').replace('-', ''),
+      phone_number: user.mobile_e164 ?? '',
+      profile_image_url: user.profile_image ?? '',
+      address: payAddress,
+    }
+
+    return res.send(`<!doctype html><meta charset="utf-8"><script>
+      try {
+        const payload = {
+          type: 'NAVER_LOGIN_DONE',
+          ok: true,
+          user: ${JSON.stringify(safeUser)}
+        };
+    
+        const origins = ['https://www.baroyeon.net', 'https://baroyeon.net'];
+        origins.forEach(o => {
+          try {
+            window.opener && window.opener.postMessage(payload, o);
+          } catch (e) {}
+        });
+      } catch (err) {}
+      window.close();
+    </script>`);
+  } catch (error) {
+    console.error('❌ 네이버 인증 오류:', error.response?.data || error.message);
+    return res.status(500).json({ message: '네이버 인증 실패', error: error.response?.data || error.message });
+  }
+};
+//#############################################################
+//#####                 네이버 콜백 End                   #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
 //#####                회원가입 체크 Start                #####
 //#############################################################
 const MEM_CHK = async (req, res, next) => {
   try{
-    const { KAKAO_ID } = req.body;
+    const { SNS_ID } = req.body;
 
     // 필수값 검사
-    if (!KAKAO_ID) {
+    if (!SNS_ID) {
       return res.status(400).json({
-        RET_DESC: "❌ 필수값 누락 (KAKAO_ID)",
+        RET_DESC: "❌ 필수값 누락 (SNS_ID)",
         RET_CODE: "1001",
       });
     }
 
-    const Query = ` SELECT IDX FROM KAKAO_MEM WHERE KAKAO_ID = @KAKAO_ID  `
+    const Query = ` SELECT IDX FROM SNS_MEM WHERE SNS_ID = @SNS_ID  `
     const params = [
-      { name: "KAKAO_ID", type: sql.VarChar, value: KAKAO_ID }
+      { name: "SNS_ID", type: sql.VarChar, value: SNS_ID }
     ];
 
     const result = await executeQuery(Query, params);
@@ -180,88 +311,103 @@ const DbInFlow = async (req, res) => {
       network, uname, jumin1, sex, married, addr_code, addr_desc, job_code, school_code, tel_number, kakaoid, email, mail_yn, etc, 
       course_ln, course_pg, course_code1, course_code2, course_ip, jumin2, tel_hope_chk, img_url_1, pg_num 
     } = req.body;
-    
-     // 전화번호 가공
-    const telHand1 = '010';
-    const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
-    
-    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
-    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+    const ip = String(course_ip ?? "").trim();
 
-    const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
-    const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
-    const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+    // ✅ 블랙리스트 (추가하기 쉬움)
+    const BLACKLIST_IPS = new Set([
+      "43.255.29.71",
+      // "1.2.3.4",
+    ]);
 
-    // ✅ 블랙리스트 확인
-    const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
-    const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
-    const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
-
-    // 블랙리스트에 존재하면 등록 차단
-    if (blackUser) {
+    if (BLACKLIST_IPS.has(ip)) {
       return res.status(403).json({
         RET_DATA: null,
         RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
-        RET_CODE: "2000"
-      });
-    } else {
-      const Query = `
-        INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
-        ([network], [find_date], [input_date], [uname], [jumin1],
-        [sex], [married], [addr_code], [addr_desc], [job_code],
-        [school_code],
-        [tel_hand1], [tel_hand2], [tel_hand3],
-        [kakaoid], [email],
-        [mail_yn], [etc], [course_ln], [course_pg],
-        [course_code1], [course_code2], [course_ip],
-        [jumin2], [tel_hope_chk], [img_url_1], pg_num)
-        VALUES (
-        @network, GETDATE(), GETDATE(), @uname, @jumin1,
-        @sex, @married, @addr_code, @addr_desc, @job_code,
-        @school_code,
-        '010',
-        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
-        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
-        @kakaoid,
-        [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
-        @mail_yn, @etc, @course_ln, @course_pg,
-        @course_code1, @course_code2, @course_ip,
-        @jumin2, @tel_hope_chk, @img_url_1, @pg_num
-      );`;
-      const params = [
-        { name: "network", type: sql.Int, value: network },
-        { name: "uname", type: sql.NVarChar, value: uname },
-        { name: "jumin1", type: sql.Int, value: jumin1 },
-        { name: "school_code", type: sql.Int, value: school_code },
-        { name: "sex", type: sql.Int, value: sex },
-        { name: "married", type: sql.Int, value: married },
-        { name: "addr_code", type: sql.VarChar, value: addr_code },
-        { name: "addr_desc", type: sql.NVarChar, value: addr_desc },
-        { name: "job_code", type: sql.Int, value: job_code },
-        { name: "tel_number", type: sql.NVarChar, value: tel_number },
-        { name: "kakaoid", type: sql.NVarChar, value: kakaoid },
-        { name: "email", type: sql.NVarChar, value: String(email) },
-        { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
-        { name: "etc", type: sql.NVarChar, value: etc },
-        { name: "course_ln", type: sql.VarChar, value: course_ln },
-        { name: "course_pg", type: sql.Int, value: course_pg },
-        { name: "course_code1", type: sql.Int, value: course_code1 },
-        { name: "course_code2", type: sql.Int, value: course_code2 },
-        { name: "course_ip", type: sql.NVarChar, value: course_ip },
-        { name: "jumin2", type: sql.Int, value: jumin2 },
-        { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
-        { name: "img_url_1", type: sql.NVarChar, value: img_url_1 },
-        { name: "pg_num", type: sql.NVarChar, value: pg_num }
-      ];
-
-      const result = await executeQuery(Query, params);
-      res.status(200).json({
-        RET_STAT: "success",
-        RET_DESC: "✅ 등록 성공",
-        RET_CODE: "0000",
-        RET_DATA: result
+        RET_CODE: "2000",
       });
     }
+      // 전화번호 가공
+      const telHand1 = '010';
+      const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
+      
+      const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
+      const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+
+      const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
+      const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
+      const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+
+      // ✅ 블랙리스트 확인
+      const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
+      const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
+      const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
+
+      // 블랙리스트에 존재하면 등록 차단
+      if (blackUser) {
+        return res.status(403).json({
+          RET_DATA: null,
+          RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+          RET_CODE: "2000"
+        });
+      } else {
+        const Query = `
+          INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
+          ([network], [find_date], [input_date], [uname], [jumin1],
+          [sex], [married], [addr_code], [addr_desc], [job_code],
+          [school_code],
+          [tel_hand1], [tel_hand2], [tel_hand3],
+          [kakaoid], [email],
+          [mail_yn], [etc], [course_ln], [course_pg],
+          [course_code1], [course_code2], [course_ip],
+          [jumin2], [tel_hope_chk], [img_url_1], pg_num)
+          VALUES (
+          @network, GETDATE(), GETDATE(), @uname, @jumin1,
+          @sex, @married, @addr_code, @addr_desc, @job_code,
+          @school_code,
+          '010',
+          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+          @kakaoid,
+          [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
+          @mail_yn, @etc, @course_ln, @course_pg,
+          @course_code1, @course_code2, @course_ip,
+          @jumin2, @tel_hope_chk, @img_url_1, @pg_num
+        );`;
+        const params = [
+          { name: "network", type: sql.Int, value: network },
+          { name: "uname", type: sql.NVarChar, value: uname },
+          { name: "jumin1", type: sql.Int, value: jumin1 },
+          { name: "school_code", type: sql.Int, value: school_code },
+          { name: "sex", type: sql.Int, value: sex },
+          { name: "married", type: sql.Int, value: married },
+          { name: "addr_code", type: sql.VarChar, value: addr_code },
+          { name: "addr_desc", type: sql.NVarChar, value: addr_desc },
+          { name: "job_code", type: sql.Int, value: job_code },
+          { name: "tel_number", type: sql.NVarChar, value: tel_number },
+          { name: "kakaoid", type: sql.NVarChar, value: kakaoid },
+          { name: "email", type: sql.NVarChar, value: String(email) },
+          { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
+          { name: "etc", type: sql.NVarChar, value: etc },
+          { name: "course_ln", type: sql.VarChar, value: course_ln },
+          { name: "course_pg", type: sql.Int, value: course_pg },
+          { name: "course_code1", type: sql.Int, value: course_code1 },
+          { name: "course_code2", type: sql.Int, value: course_code2 },
+          { name: "course_ip", type: sql.NVarChar, value: course_ip },
+          { name: "jumin2", type: sql.Int, value: jumin2 },
+          { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
+          { name: "img_url_1", type: sql.NVarChar, value: img_url_1 },
+          { name: "pg_num", type: sql.NVarChar, value: pg_num }
+        ];
+
+        const result = await executeQuery(Query, params);
+        res.status(200).json({
+          RET_STAT: "success",
+          RET_DESC: "✅ 등록 성공",
+          RET_CODE: "0000",
+          RET_DATA: result
+        });
+      }
+    
   } catch (err) {
     console.error(err);
     res.status(500).json({ 
@@ -283,80 +429,107 @@ const DbInFlow = async (req, res) => {
 const DbInFlowNoAuth = async (req, res) => {
   try {
     const {
-      network, uname, addr_code, tel_number, mail_yn, etc,
-      course_pg, course_code1, course_code2, course_ip, tel_hope_chk, pg_num
+      network, uname, addr_code, job_code, school_code, tel_number, mail_yn, etc,
+      course_pg, course_code1, course_code2, course_ip, tel_hope_chk, pg_num,
+      gender: genderRaw,
+      married: marriedRaw
     } = req.body;
 
-    // 전화번호 가공
-    const telHand1 = '010';
-    const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
+    const ip = String(course_ip ?? "").trim();
 
-    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
-    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+    // ✅ 블랙리스트 (추가하기 쉬움)
+    const BLACKLIST_IPS = new Set([
+      "43.255.29.71",
+      // "1.2.3.4",
+    ]);
 
-    const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
-    const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
-    const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
-
-    // ✅ 블랙리스트 확인
-    const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
-    const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
-    const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
-
-    // 블랙리스트에 존재하면 등록 차단
-    if (blackUser) {
+    if (BLACKLIST_IPS.has(ip)) {
       return res.status(403).json({
         RET_DATA: null,
         RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
-        RET_CODE: "2000"
-      });
-    } else {
-      const Query = `
-        INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
-        ([network], [find_date], [input_date], [uname], [jumin1],
-        [sex], [married], [addr_code], [addr_desc], [job_code],
-        [school_code],
-        [tel_hand1], [tel_hand2], [tel_hand3],
-        [kakaoid], [email],
-        [mail_yn], [etc], [course_ln], [course_pg],
-        [course_code1], [course_code2], [course_ip],
-        [jumin2], [tel_hope_chk], [img_url_1], pg_num)
-        VALUES (
-        @network, GETDATE(), GETDATE(), @uname, '',
-        1, 1, @addr_code, '', 0,
-        0,
-        '010',
-        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
-        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
-        '',
-        '',
-        @mail_yn, @etc, 0, @course_pg,
-        @course_code1, @course_code2, @course_ip,
-        0, @tel_hope_chk, null, @pg_num
-      );`;
-      const params = [
-        { name: "network", type: sql.Int, value: network },
-        { name: "uname", type: sql.NVarChar, value: uname },      
-        { name: "addr_code", type: sql.VarChar, value: addr_code },        
-        { name: "tel_number", type: sql.NVarChar, value: tel_number },
-        { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
-        { name: "etc", type: sql.NVarChar, value: etc },
-        { name: "course_pg", type: sql.Int, value: course_pg },
-        { name: "course_code1", type: sql.Int, value: course_code1 },
-        { name: "course_code2", type: sql.Int, value: course_code2 },
-        { name: "course_ip", type: sql.NVarChar, value: course_ip },
-        { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
-        { name: "pg_num", type: sql.NVarChar, value: pg_num }
-      ];
-
-      const result = await executeQuery(Query, params);
-      res.status(200).json({
-        RET_STAT: "success",
-        RET_DESC: "✅ 등록 성공",
-        RET_CODE: "0000",
-        RET_DATA: result
+        RET_CODE: "2000",
       });
     }
+      const sex = (Number(genderRaw) === 2 ? 2 : 1);
+      const married = (Number(marriedRaw) === 2 ? 2 : 1);
+
+      // 전화번호 가공
+      const telHand1 = '010';
+      const telParam = [{ name: 'rawTel', type: sql.VarChar, value: tel_number }];
+
+      const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
+      const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+
+      const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
+      const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
+      const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+
+      // ✅ 블랙리스트 확인
+      const checkBlacklistQuery = ` SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone `;
+      const checkParams = [{ name: 'FullPhone', type: sql.VarChar, value: fullPhone }];
+      const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
+
+      // 블랙리스트에 존재하면 등록 차단
+      if (blackUser) {
+        return res.status(403).json({
+          RET_DATA: null,
+          RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+          RET_CODE: "2000"
+        });
+      } else {
+        const Query = `
+          INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
+          ([network], [find_date], [input_date], [uname], [jumin1],
+          [sex], [married], [addr_code], [addr_desc], [job_code],
+          [school_code],
+          [tel_hand1], [tel_hand2], [tel_hand3],
+          [kakaoid], [email],
+          [mail_yn], [etc], [course_ln], [course_pg],
+          [course_code1], [course_code2], [course_ip],
+          [jumin2], [tel_hope_chk], [img_url_1], pg_num)
+          VALUES (
+          @network, GETDATE(), GETDATE(), @uname, '',
+          @sex, @married, @addr_code, '', @job_code,
+          @school_code,
+          '010',
+          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+          '',
+          '',
+          @mail_yn, @etc, 0, @course_pg,
+          @course_code1, @course_code2, @course_ip,
+          0, @tel_hope_chk, null, @pg_num
+        );`;
+        const params = [
+          { name: "network", type: sql.Int, value: network },
+          { name: "uname", type: sql.NVarChar, value: uname },
+          { name: "sex", type: sql.TinyInt, value: sex },
+          { name: "married", type: sql.TinyInt, value: married },
+          { name: "addr_code", type: sql.VarChar, value: addr_code },
+
+          { name: "job_code", type: sql.VarChar, value: job_code },
+          { name: "school_code", type: sql.VarChar, value: school_code },
+
+          { name: "tel_number", type: sql.NVarChar, value: tel_number },
+          { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
+          { name: "etc", type: sql.NVarChar, value: etc },
+          { name: "course_pg", type: sql.Int, value: course_pg },
+          { name: "course_code1", type: sql.Int, value: course_code1 },
+          { name: "course_code2", type: sql.Int, value: course_code2 },
+          { name: "course_ip", type: sql.NVarChar, value: course_ip },
+          { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
+          { name: "pg_num", type: sql.NVarChar, value: pg_num },
+        ];
+
+        const result = await executeQuery(Query, params);
+        res.status(200).json({
+          RET_STAT: "success",
+          RET_DESC: "✅ 등록 성공",
+          RET_CODE: "0000",
+          RET_DATA: result
+        });
+      }
+   
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -921,7 +1094,7 @@ const AdCampaign = async (req, res) => {
 const MEM_APPLY = async (req, res) => {
   try {
     const { 
-      KAKAO_ID, 
+      SNS_ID, 
       NAME, 
       HAND_TEL, 
       EMAIL, 
@@ -936,27 +1109,28 @@ const MEM_APPLY = async (req, res) => {
       SMS_CHK, 
       PROMISE1, 
       PROMISE2, 
-      PROMISE3 
+      PROMISE3,
+      PROVIDE
     } = req.body;
 
     // 필수값 검사
-    if (!KAKAO_ID || !NAME || !HAND_TEL) {
+    if (!SNS_ID || !NAME || !HAND_TEL) {
       return res.status(400).json({
-        RET_DESC: "❌ 필수값 누락 (KAKAO_ID, NAME, HAND_TEL)",
+        RET_DESC: "❌ 필수값 누락 (SNS_ID, NAME, HAND_TEL)",
         RET_CODE: "1001",
       });
     }
 
     const Query = `
-      INSERT INTO KAKAO_MEM 
-      (KAKAO_ID, NAME, HAND_TEL, EMAIL, GENDER, BIRTH_DATE, ADDRESS, PROFILE_PICTURE
-      , MARRY, SCHOOL, JOB_CODE, EMAIL_CHK, SMS_CHK , PROMISE1, PROMISE2, PROMISE3)
+      INSERT INTO SNS_MEM 
+      (SNS_ID, NAME, HAND_TEL, EMAIL, GENDER, BIRTH_DATE, ADDRESS, PROFILE_PICTURE
+      , MARRY, SCHOOL, JOB_CODE, EMAIL_CHK, SMS_CHK , PROMISE1, PROMISE2, PROMISE3, SNS_TYPE)
       VALUES
-      (@KAKAO_ID, @NAME, @HAND_TEL, @EMAIL, @GENDER, @BIRTH_DATE, @ADDRESS, @PROFILE_PICTURE
-      , @MARRY, @SCHOOL, @JOB_CODE, @EMAIL_CHK, @SMS_CHK , @PROMISE1, @PROMISE2, @PROMISE3)
+      (@SNS_ID, @NAME, [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2','0',@HAND_TEL), [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('2',@EMAIL)
+      , @GENDER, @BIRTH_DATE, @ADDRESS, @PROFILE_PICTURE, @MARRY, @SCHOOL, @JOB_CODE, @EMAIL_CHK, @SMS_CHK , @PROMISE1, @PROMISE2, @PROMISE3, @PROVIDE)
     `;
     const params = [
-      { name: 'KAKAO_ID', type: sql.VarChar, value: KAKAO_ID },
+      { name: 'SNS_ID', type: sql.VarChar, value: SNS_ID },
       { name: 'NAME', type: sql.VarChar, value: NAME },
       { name: 'HAND_TEL', type: sql.VarChar, value: HAND_TEL },
       { name: 'EMAIL', type: sql.VarChar, value: EMAIL },
@@ -971,13 +1145,14 @@ const MEM_APPLY = async (req, res) => {
       { name: 'SMS_CHK', type: sql.VarChar, value: SMS_CHK },
       { name: 'PROMISE1', type: sql.VarChar, value: PROMISE1 },
       { name: 'PROMISE2', type: sql.VarChar, value: PROMISE2 },
-      { name: 'PROMISE3', type: sql.VarChar, value: PROMISE3 }
+      { name: 'PROMISE3', type: sql.VarChar, value: PROMISE3 },
+      { name: 'PROVIDE', type: sql.VarChar, value: PROVIDE }
     ];
 
     const result = await executeQuery(Query, params);
 
     const AccessToken = jwt.sign(
-      { kakao_id: KAKAO_ID },
+      { kakao_id: SNS_ID },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -1008,23 +1183,23 @@ const MEM_APPLY = async (req, res) => {
 //#############################################################
 const MEM_LOGIN = async (req, res) => {
   try {
-    const { KAKAO_ID } = req.body;
+    const { SNS_ID } = req.body;
     
-    if (!KAKAO_ID) {
+    if (!SNS_ID) {
       return res.status(400).json({
-        RET_DESC: "❌ KAKAO_ID는 필수입니다.",
+        RET_DESC: "❌ SNS_ID는 필수입니다.",
         RET_CODE: "1001",
       });
     }
     
-    const Query = ` SELECT KAKAO_ID FROM KAKAO_MEM WHERE KAKAO_ID = @KAKAO_ID `;
+    const Query = ` SELECT SNS_ID FROM SNS_MEM WHERE SNS_ID = @SNS_ID `;
     const params = [
-      { name: 'KAKAO_ID', type: sql.VarChar, value: KAKAO_ID }      
+      { name: 'SNS_ID', type: sql.VarChar, value: SNS_ID }      
     ];
     const result = await executeQuery(Query, params);
     if (result?.length > 0) {
       const accessToken = jwt.sign(
-        { kakao_id: KAKAO_ID },
+        { kakao_id: SNS_ID },
         process.env.JWT_SECRET,
         { expiresIn: "8h" }
       );      
@@ -1231,7 +1406,7 @@ const LANDING_MEMO = async (req, res) => {
 const POPUP = async (req, res) => {
   try {
 
-    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, PA.POPUP_CLOSE_COLOR, FA.SAVE_FILENAME, FA.FILE_PATH
+    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, PA.POPUP_CLOSE_CL, FA.SAVE_FILENAME, FA.FILE_PATH
                     FROM POPUP_ACTIVE PA
                     LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
                     WHERE PA.IS_ACTIVE = 'Y'
@@ -1363,6 +1538,8 @@ const POST_DETAIL = async (req, res) => {
 
 module.exports = {
   KAKAO_AUTH,
+  NAVER_AUTH,
+  NAVER_CALLBACK,
   MEM_CHK,
   ManagerList,
   DbInFlow, 

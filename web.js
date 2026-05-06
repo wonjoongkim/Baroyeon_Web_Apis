@@ -15,8 +15,11 @@ const allowedOrigins = [
   'http://www.baroyeon.net',
   'http://adm.baroyeon.net',
   'http://sign.baroyeon.net',
+  'https://sign.baroyeon.net',
   'http://emfs.baroyeon.net',
+  'https://emfs.baroyeon.net',
   'http://localhost:5173',
+  'http://localhost:5174',
 ];
 
 const corsOptions = {
@@ -50,7 +53,6 @@ app.use(express.urlencoded({ extended: true, limit: '120mb' }));
 
 // 라우트
 app.use('/api/users', require('./routes/userRoutes'));
-app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/emfs', require('./routes/emfsRoutes'));
 app.use('/api/contract', require('./routes/contractRoutes'));
 
