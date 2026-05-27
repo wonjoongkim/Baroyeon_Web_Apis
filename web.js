@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8585;
@@ -52,7 +54,13 @@ app.use(express.json({ limit: '120mb' }));
 app.use(express.urlencoded({ extended: true, limit: '120mb' }));
 
 // 라우트
+const employeePhotoBasePath = String(process.env.FILEUPLOAD_SAVE_PATH_EMPLOYEE || '').trim();
+if (employeePhotoBasePath && fs.existsSync(employeePhotoBasePath)) {
+  app.use('/xFile/Manager', express.static(employeePhotoBasePath));
+}
+
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/emfs', require('./routes/emfsRoutes'));
 app.use('/api/contract', require('./routes/contractRoutes'));
 

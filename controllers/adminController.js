@@ -1,4 +1,4 @@
-const { executeQuery } = require("../server/database");
+﻿const { executeQuery } = require("../server/database");
 const sql = require("mssql");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
@@ -14,6 +14,199 @@ async function hashPassword(password) {
   const saltRounds = 10;
   return bcrypt.hash(password, saltRounds);
 }
+
+async function getEmployeeByAdmId(admId) {
+  const normalizedAdmId = String(admId ?? "").trim();
+  if (!normalizedAdmId) {
+    return null;
+  }
+
+  const query = `
+    SELECT TOP 1
+      seq,
+      emp_id,
+      emp_nm,
+      dept_cd,
+      clss_cd,
+      duty_cd,
+      team_no,
+      network,
+      quit_chk
+    FROM [baroyeon_intra].[dbo].[view_EmpLIst]
+    WHERE emp_id = @emp_id
+    ORDER BY
+      CASE WHEN ISNULL(quit_chk, 'N') = 'N' THEN 0 ELSE 1 END,
+      seq DESC
+  `;
+
+  const [employee] = await executeQuery(query, [
+    { name: "emp_id", type: sql.VarChar, value: normalizedAdmId }
+  ]);
+
+  return employee || null;
+}
+
+const getScalarValue = (...values) => {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      if (value.length > 0 && value[0] !== undefined && value[0] !== null) {
+        return String(value[0]).trim();
+      }
+      continue;
+    }
+
+    if (value !== undefined && value !== null) {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+};
+
+const toBoardAuthLevel = (value) => {
+  if (value === undefined || value === null) {
+    return 0;
+  }
+
+  const normalized = String(value).trim();
+  if (!normalized) {
+    return 0;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const buildBoardAuthorization = (boardInfo, isBoardAdmin, dutyCd) => {
+  if (isBoardAdmin) {
+    return {
+      au_entry: "Y",
+      au_read: "Y",
+      au_write: "Y",
+      au_reple: "Y",
+      au_memo: "Y",
+      au_admin: "Y",
+      comm_admin: "Y",
+    };
+  }
+
+  const dutyLevel = toBoardAuthLevel(dutyCd);
+  const hasPermission = (authValue) => (
+    toBoardAuthLevel(authValue) <= dutyLevel ? "Y" : "N"
+  );
+
+  return {
+    au_entry: hasPermission(boardInfo?.auth_entry),
+    au_read: hasPermission(boardInfo?.auth_read),
+    au_write: hasPermission(boardInfo?.auth_write),
+    au_reple: hasPermission(boardInfo?.auth_reple),
+    au_memo: hasPermission(boardInfo?.auth_memo),
+    au_admin: "N",
+    comm_admin: "N",
+  };
+};
+
+let commAdministratorKeyColumnPromise = null;
+
+const getCommAdministratorKeyColumn = async () => {
+  if (!commAdministratorKeyColumnPromise) {
+    commAdministratorKeyColumnPromise = executeQuery(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = 'dbo'
+        AND TABLE_NAME = 'Comm_Administrator'
+        AND COLUMN_NAME IN ('emp_seq', 'seq', 'emp_id', 'emp_no')
+    `).then((rows) => {
+      const columns = rows.map((row) => String(row.COLUMN_NAME || "").trim().toLowerCase());
+      const preferredOrder = ["emp_seq", "seq", "emp_id", "emp_no"];
+      return preferredOrder.find((column) => columns.includes(column)) || null;
+    }).catch((error) => {
+      commAdministratorKeyColumnPromise = null;
+      throw error;
+    });
+  }
+
+  return commAdministratorKeyColumnPromise;
+};
+
+const getBoardInfoWithAuthorization = async (adCode, user) => {
+  const normalizedAdCode = String(adCode ?? "").trim();
+  if (!normalizedAdCode) {
+    return null;
+  }
+
+  const [boardInfo, employee] = await Promise.all([
+    executeQuery(`
+      SELECT TOP 1 *
+      FROM [baroyeon_intra].[dbo].[Comm_Admin]
+      WHERE ad_code = @ad_code
+    `, [{ name: "ad_code", type: sql.VarChar, value: normalizedAdCode }]).then((rows) => rows[0] || null),
+    getEmployeeByAdmId(user?.ADM_ID ?? user?.emp_id ?? "")
+  ]);
+
+  if (!boardInfo) {
+    return null;
+  }
+
+  let isBoardAdmin = false;
+  const adminKeyColumn = await getCommAdministratorKeyColumn();
+
+  if (adminKeyColumn === "emp_seq" || adminKeyColumn === "seq") {
+    const empSeq = parseInt(employee?.seq ?? user?.emp_seq, 10);
+    if (Number.isInteger(empSeq)) {
+      const [boardAdmin] = await executeQuery(`
+        SELECT TOP 1 1 AS is_admin
+        FROM [baroyeon_intra].[dbo].[Comm_Administrator]
+        WHERE ad_code = @ad_code
+          AND ${adminKeyColumn} = @admin_key_value
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: normalizedAdCode },
+        { name: "admin_key_value", type: sql.Int, value: empSeq }
+      ]);
+
+      isBoardAdmin = Boolean(boardAdmin?.is_admin);
+    }
+  } else if (adminKeyColumn === "emp_id") {
+    const empId = String(employee?.emp_id ?? user?.emp_id ?? user?.ADM_ID ?? "").trim();
+    if (empId) {
+      const [boardAdmin] = await executeQuery(`
+        SELECT TOP 1 1 AS is_admin
+        FROM [baroyeon_intra].[dbo].[Comm_Administrator]
+        WHERE ad_code = @ad_code
+          AND emp_id = @admin_key_value
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: normalizedAdCode },
+        { name: "admin_key_value", type: sql.VarChar, value: empId }
+      ]);
+
+      isBoardAdmin = Boolean(boardAdmin?.is_admin);
+    }
+  } else if (adminKeyColumn === "emp_no") {
+    const empNo = String(employee?.emp_no ?? user?.emp_no ?? "").trim();
+    if (empNo) {
+      const [boardAdmin] = await executeQuery(`
+        SELECT TOP 1 1 AS is_admin
+        FROM [baroyeon_intra].[dbo].[Comm_Administrator]
+        WHERE ad_code = @ad_code
+          AND emp_no = @admin_key_value
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: normalizedAdCode },
+        { name: "admin_key_value", type: sql.VarChar, value: empNo }
+      ]);
+
+      isBoardAdmin = Boolean(boardAdmin?.is_admin);
+    }
+  }
+
+  if (!adminKeyColumn) {
+    isBoardAdmin = false;
+  }
+
+  return {
+    ...boardInfo,
+    ...buildBoardAuthorization(boardInfo, isBoardAdmin, employee?.duty_cd)
+  };
+};
 //############################################################
 //#####                비밀번호 해싱 함수 End             #####
 //############################################################
@@ -27,6 +220,69 @@ async function hashPassword(password) {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 파일 업로드
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+const BOARD_ADMIN_EXCEPTION_UIDS = new Set([953, 1489, 643, 30]);
+
+const EMPLOYEE_PHOTO_BASE_PATH = process.env.FILEUPLOAD_SAVE_PATH_EMPLOYEE
+  || path.join("D:", "ROOT", "Baroyeon_file", "Intranet", "Manager");
+const EMPLOYEE_PHOTO_ORIGINAL_PATH = path.join(EMPLOYEE_PHOTO_BASE_PATH, "original");
+
+const ensureDirectory = async (targetPath) => {
+  const normalizedTargetPath = path.resolve(String(targetPath || ""));
+  const rootPath = path.parse(normalizedTargetPath).root;
+
+  if (!rootPath || !fs.existsSync(rootPath)) {
+    throw new Error(`Employee photo base path is not available on this machine: ${normalizedTargetPath}. Set FILEUPLOAD_SAVE_PATH_EMPLOYEE to a valid path.`);
+  }
+
+  await fs.promises.mkdir(targetPath, { recursive: true });
+};
+
+const decodeEmployeeUploadedOriginalName = (value) => {
+  if (!value) {
+    return "";
+  }
+
+  return Buffer.from(String(value), "latin1").toString("utf8");
+};
+
+const sanitizeEmployeePhotoFileName = (value) => (
+  String(value || "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, "_")
+);
+
+const getEmployeePhotoLargeFileName = (fileName) => {
+  const parsed = path.parse(String(fileName || ""));
+  return parsed.name ? `${parsed.name}_L${parsed.ext}` : "";
+};
+
+const getEmployeePhotoDirectory = (networkValue) => {
+  const normalizedNetwork = String(networkValue ?? "").trim();
+  return normalizedNetwork && normalizedNetwork !== "1"
+    ? path.join(EMPLOYEE_PHOTO_BASE_PATH, `branch${normalizedNetwork}`)
+    : EMPLOYEE_PHOTO_BASE_PATH;
+};
+
+const buildBoardDetailAuthorization = (boardInfo, boardDetail, employee, user) => {
+  if (!boardInfo) {
+    return boardInfo;
+  }
+
+  const currentEmpId = String(employee?.emp_id ?? user?.emp_id ?? user?.ADM_ID ?? "").trim().toLowerCase();
+  const writerEmpNo = String(boardDetail?.emp_no ?? "").trim().toLowerCase();
+  const isCommAdmin = String(boardInfo.comm_admin ?? "N").trim().toUpperCase() === "Y";
+  const isWriter = Boolean(currentEmpId) && Boolean(writerEmpNo) && currentEmpId === writerEmpNo;
+  const empSeq = parseInt(employee?.seq ?? user?.emp_seq, 10);
+  const isExceptionAccount = BOARD_ADMIN_EXCEPTION_UIDS.has(empSeq);
+
+  return {
+    ...boardInfo,
+    au_admin: isCommAdmin || isWriter || isExceptionAccount
+      ? "Y"
+      : String(boardInfo.au_admin ?? "N").trim().toUpperCase()
+  };
+};
+
 const FileUpload = async (req, res) => {
   try {
     const { FileKey, FileType } = req.body;
@@ -358,9 +614,14 @@ const ADM_LOGIN = async (req, res) => {
         RET_CODE: "2000",
       });
     }
+    const employee = await getEmployeeByAdmId(user.ADM_ID);
 
     const AccessToken = jwt.sign(
-      { ADM_ID: user.ADM_ID },
+      {
+        ADM_ID: user.ADM_ID,
+        emp_seq: employee?.seq ?? null,
+        emp_id: employee?.emp_id ?? user.ADM_ID
+      },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -370,6 +631,14 @@ const ADM_LOGIN = async (req, res) => {
         ADM_ID: user.ADM_ID,
         ADM_NAME: user.ADM_NAME,
         ADM_LEVEL: user.ADM_LEVEL,
+        emp_seq: employee?.seq ?? null,
+        emp_id: employee?.emp_id ?? user.ADM_ID,
+        emp_nm: employee?.emp_nm ?? null,
+        dept_cd: employee?.dept_cd ?? null,
+        clss_cd: employee?.clss_cd ?? null,
+        duty_cd: employee?.duty_cd ?? null,
+        team_no: employee?.team_no ?? null,
+        network: employee?.network ?? null,
       },
       RET_DESC: "✅ Login Success",
       RET_CODE: "0000",
@@ -448,13 +717,24 @@ const GET_LOGIN_INFO = async (req, res) => {
       });
     }
 
+    const employee = await getEmployeeByAdmId(ADM_ID);
+
     return res.status(200).json({
       RET_DESC: "✅ 로그인 정보 조회 성공",
       RET_CODE: "0000",
-      RET_DATA: userInfo,
+      RET_DATA: {
+        ...userInfo,
+        emp_seq: employee?.seq ?? decoded?.emp_seq ?? null,
+        emp_id: employee?.emp_id ?? decoded?.emp_id ?? ADM_ID,
+        emp_nm: employee?.emp_nm ?? null,
+        dept_cd: employee?.dept_cd ?? null,
+        clss_cd: employee?.clss_cd ?? null,
+        duty_cd: employee?.duty_cd ?? null,
+        team_no: employee?.team_no ?? null,
+        network: employee?.network ?? null,
+      },
     });
   } catch (err) {
-    // 프로덕션에서는 로그를 제한하는 것도 고려
     if (process.env.NODE_ENV !== 'production') {
       console.error("로그인 처리 중 오류 발생:", err);
     }
@@ -488,8 +768,8 @@ const ADM_REGIST = async (req, res) => {
     }
 
     const HashedPassword = await hashPassword(ADM_PW);
-
-    const Query = ` INSERT INTO ADM_MEM (ADM_ID, ADM_PW, ADM_NAME, ADM_MOBILE, ADM_LEVEL) 
+    
+    const Query = ` INSERT INTO ADM_MEM (ADM_ID, ADM_PW, ADM_NAME, ADM_MOBILE, ADM_LEVEL)
                     VALUES (@ADM_ID, @ADM_PW, @ADM_NAME, @ADM_MOBILE, @ADM_LEVEL)`;
     const params = [
       { name: 'ADM_ID', type: sql.VarChar, value: ADM_ID },
@@ -497,10 +777,16 @@ const ADM_REGIST = async (req, res) => {
       { name: 'ADM_NAME', type: sql.VarChar, value: ADM_NAME },
       { name: 'ADM_MOBILE', type: sql.VarChar, value: ADM_MOBILE },
       { name: 'ADM_LEVEL', type: sql.Int, value: '5' }
-    ];
-    const result = await executeQuery(Query, params);
 
-    res.status(200).json({
+      // { name: "ADM_ID", type: sql.VarChar, value: ADM_ID },
+      // { name: "ADM_PW", type: sql.VarChar, value: HashedPassword },
+      // { name: "ADM_NAME", type: sql.VarChar, value: ADM_NAME },
+      // { name: "ADM_MOBILE", type: sql.VarChar, value: ADM_MOBILE },
+      // { name: "ADM_LEVEL", type: sql.Int, value: 1 }
+    ];
+
+    await executeQuery(Query, params);
+    return res.status(200).json({
       RET_STAT: "Success",
       RET_DESC: "✅ Registration Success",
       RET_CODE: "0000"
@@ -2881,8 +3167,1790 @@ const EMPLOYEE_SELECT = async (req, res) => {
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
-//#####       출/퇴근 - 일별 리스트 (Attendance) Start      #####
+//#####       직원 상세 정보 (Employee Detail) Start      #####
 //#############################################################
+const EMPLOYEE_DETAIL = async (req, res) => {
+  try {
+    const { emp_seq, hd_emp_seq, seq } = req.body || {};
+    const targetSeq = parseInt(emp_seq ?? hd_emp_seq ?? seq, 10);
+
+    if (!Number.isInteger(targetSeq)) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "Invalid employee sequence.",
+        RET_CODE: "1001",
+      });
+    }
+
+    const [employee] = await executeQuery(`
+      SELECT TOP 1
+        seq,
+        network,
+        emp_id,
+        emp_pw,
+        emp_nm_real,
+        emp_nm,
+        emp_jm1,
+        emp_jm2,
+        emp_email,
+        emp_tel,
+        emp_tel2,
+        emp_hp,
+        emp_ip,
+        emp_photo,
+        photo_Name,
+        emp_home,
+        emp_home_auth,
+        emp_home_order,
+        rk_order,
+        team_no,
+        emp_group,
+        ins_day,
+        quit_chk,
+        quit_day,
+        dept_cd,
+        clss_cd,
+        duty_cd,
+        team_auth,
+        emp_level,
+        emp_auth,
+        emp_auth2,
+        emp_goal,
+        emp_desc,
+        my_info,
+        emp_career,
+        emp_app,
+        cManager_chk,
+        mManager_chk,
+        au_asso_ad_chk,
+        au_asso_db_chk,
+        au_asso_mg_chk,
+        au_asso_pay_chk,
+        au_asso_reg_chk,
+        au_cust_cert_chk,
+        au_cust_reg_chk,
+        au_cust_sch_chk,
+        au_cust_vip_chk,
+        au_asso_access_chk,
+        au_cust_access_chk,
+        au_home_chk,
+        au_ad_chk,
+        au_emp_chk,
+        au_crm_chk,
+        reg_date,
+        emp_order,
+        rk_team,
+        wb_order,
+        pw_update,
+        web_id,
+        au_cust_adm_level,
+        au_asso_adm_level
+      FROM [baroyeon_intra].[dbo].[EMP_BONSA]
+      WHERE seq = @seq
+    `, [{ name: "seq", type: sql.Int, value: targetSeq }]);
+
+    if (!employee) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Employee not found.",
+        RET_CODE: "1004",
+      });
+    }
+
+    const empTel = getScalarValue(employee.emp_tel);
+    const empTel2 = getScalarValue(employee.emp_tel2, employee.emp_hp);
+    const telParts = empTel.split("-");
+    const responseEmployee = {
+      hd_emp_seq: targetSeq,
+      emp_seq: targetSeq,
+      seq: targetSeq,
+      txt_emp_id: getScalarValue(employee.emp_id),
+      emp_id: getScalarValue(employee.emp_id),
+      emp_nm: getScalarValue(employee.emp_nm),
+      emp_nm_real: getScalarValue(employee.emp_nm_real, employee.emp_nm),
+      dept_cd: getScalarValue(employee.dept_cd),
+      clss_cd: getScalarValue(employee.clss_cd),
+      duty_cd: getScalarValue(employee.duty_cd),
+      team_no: employee.team_no ?? 0,
+      network: employee.network ?? 0,
+      txt_Tel1: telParts[0] || "",
+      txt_Tel2: telParts[1] || "",
+      txt_Tel3: telParts[2] || "",
+      emp_tel: empTel,
+      emp_tel2: empTel2,
+      emp_hp: empTel2,
+      txt_emp_email_id: getScalarValue(employee.emp_email),
+      emp_email: getScalarValue(employee.emp_email),
+      txt_my_info: getScalarValue(employee.my_info),
+      my_info: getScalarValue(employee.my_info),
+      pwd_pw: "",
+      emp_pw: "",
+      txt_emp_Tel: empTel,
+      txt_emp_Tel2: getScalarValue(employee.emp_tel2),
+      txt_emp_Hp: getScalarValue(employee.emp_hp),
+      txt_emp_pw: "",
+      txt_name: getScalarValue(employee.emp_nm),
+      txt_name_real: getScalarValue(employee.emp_nm_real, employee.emp_nm),
+      txt_team_no: getScalarValue(employee.team_no),
+      txt_emp_career: getScalarValue(employee.emp_career),
+      txt_emp_app: getScalarValue(employee.emp_app),
+      txt_emp_desc: getScalarValue(employee.emp_desc),
+      emp_photo: getScalarValue(employee.emp_photo),
+      emp_home: getScalarValue(employee.emp_home),
+      photo_name: getScalarValue(employee.photo_Name),
+      photo_Name: getScalarValue(employee.photo_Name),
+      ins_day: employee.ins_day ?? "",
+      quit_chk: getScalarValue(employee.quit_chk),
+      quit_day: employee.quit_day ?? null,
+      team_auth: employee.team_auth ?? 0,
+      emp_level: employee.emp_level ?? 0,
+      emp_auth: employee.emp_auth ?? 0,
+      emp_auth2: employee.emp_auth2 ?? 0,
+      cManager_chk: getScalarValue(employee.cManager_chk),
+      mManager_chk: getScalarValue(employee.mManager_chk),
+      au_asso_ad_chk: getScalarValue(employee.au_asso_ad_chk),
+      au_asso_db_chk: getScalarValue(employee.au_asso_db_chk),
+      au_asso_mg_chk: getScalarValue(employee.au_asso_mg_chk),
+      au_asso_pay_chk: getScalarValue(employee.au_asso_pay_chk),
+      au_asso_reg_chk: getScalarValue(employee.au_asso_reg_chk),
+      au_cust_cert_chk: getScalarValue(employee.au_cust_cert_chk),
+      au_cust_reg_chk: getScalarValue(employee.au_cust_reg_chk),
+      au_cust_sch_chk: getScalarValue(employee.au_cust_sch_chk),
+      au_cust_vip_chk: getScalarValue(employee.au_cust_vip_chk),
+      au_asso_access_chk: getScalarValue(employee.au_asso_access_chk),
+      au_cust_access_chk: getScalarValue(employee.au_cust_access_chk),
+      au_home_chk: getScalarValue(employee.au_home_chk),
+      au_ad_chk: getScalarValue(employee.au_ad_chk),
+      au_emp_chk: getScalarValue(employee.au_emp_chk),
+      au_crm_chk: getScalarValue(employee.au_crm_chk),
+      web_id: getScalarValue(employee.web_id),
+      emp_desc: getScalarValue(employee.emp_desc),
+      emp_career: getScalarValue(employee.emp_career),
+      emp_app: getScalarValue(employee.emp_app),
+      reg_date: employee.reg_date ?? null,
+      pw_update: employee.pw_update ?? null
+    };
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Employee detail loaded.",
+      RET_CODE: "0000",
+      RET_DATA: responseEmployee
+    });
+  } catch (err) {
+    console.error("[EMPLOYEE_DETAIL] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####       직원 상세 정보 (Employee Detail) Start      #####
+//#############################################################
+
+
+//#############################################################
+//#####       직원 정보 수정 (Employee Update) Start      #####
+//#############################################################
+const EMPLOYEE_UPDATE = async (req, res) => {
+  try {
+    const {
+      hd_emp_seq,
+      emp_seq,
+      seq,
+      txt_emp_id = "",
+      txt_Tel1 = "",
+      txt_Tel2 = "",
+      txt_Tel3 = "",
+      txt_emp_email_id = "",
+      txt_my_info = "",
+      txt_emp_career = "",
+      txt_emp_app = "",
+      txt_emp_desc = "",
+      txt_emp_Tel = "",
+      txt_emp_pw = "",
+      cb_photo_chk = "",
+      pwd_pw = "",
+      emp_id = "",
+      emp_tel = "",
+      emp_email = "",
+      my_info = "",
+      emp_career = "",
+      emp_app = "",
+      emp_desc = "",
+      emp_pw = ""
+    } = req.body || {};
+
+    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(req.body || {}, key);
+
+    const targetSeq = parseInt(hd_emp_seq ?? emp_seq ?? seq, 10);
+    if (!Number.isInteger(targetSeq)) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "Invalid employee sequence.",
+        RET_CODE: "1001",
+      });
+    }
+
+    const [currentEmployee] = await executeQuery(`
+      SELECT TOP 1 seq, emp_id, emp_tel, emp_email, my_info, emp_career, emp_app, emp_desc, photo_name, emp_photo, network
+      FROM [baroyeon_intra].[dbo].[view_EmpLIst]
+      WHERE seq = @seq
+    `, [{ name: "seq", type: sql.Int, value: targetSeq }]);
+
+    if (!currentEmployee) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Employee not found.",
+        RET_CODE: "1004",
+      });
+    }
+
+    const nextEmpId = hasOwn("txt_emp_id")
+      ? String(txt_emp_id ?? "").trim()
+      : hasOwn("emp_id")
+        ? String(emp_id ?? "").trim()
+        : String(currentEmployee.emp_id || "").trim();
+    const telParts = [txt_Tel1, txt_Tel2, txt_Tel3].map((value) => String(value || "").trim()).filter(Boolean);
+    const nextEmpTel = telParts.length > 0
+      ? telParts.join("-")
+      : hasOwn("txt_emp_Tel")
+        ? String(txt_emp_Tel ?? "").trim()
+        : String(emp_tel || currentEmployee.emp_tel || "").trim();
+    const nextEmpEmail = hasOwn("txt_emp_email_id")
+      ? String(txt_emp_email_id ?? "").trim()
+      : hasOwn("emp_email")
+        ? String(emp_email ?? "").trim()
+        : String(currentEmployee.emp_email || "").trim();
+    const nextMyInfo = hasOwn("txt_my_info")
+      ? String(txt_my_info ?? "")
+      : hasOwn("my_info")
+        ? String(my_info ?? "")
+        : String(currentEmployee.my_info || "");
+    const nextEmpCareer = hasOwn("txt_emp_career")
+      ? String(txt_emp_career ?? "")
+      : hasOwn("emp_career")
+        ? String(emp_career ?? "")
+        : String(currentEmployee.emp_career || "");
+    const nextEmpApp = hasOwn("txt_emp_app")
+      ? String(txt_emp_app ?? "")
+      : hasOwn("emp_app")
+        ? String(emp_app ?? "")
+        : String(currentEmployee.emp_app || "");
+    const nextEmpDesc = hasOwn("txt_emp_desc")
+      ? String(txt_emp_desc ?? "")
+      : hasOwn("emp_desc")
+        ? String(emp_desc ?? "")
+        : String(currentEmployee.emp_desc || "");
+    const nextEmpPhoto = hasOwn("cb_photo_chk")
+      ? String(cb_photo_chk || "").trim().toUpperCase() === "Y"
+        ? "Y"
+        : "N"
+      : String(currentEmployee.emp_photo || "").trim().toUpperCase() === "Y"
+        ? "Y"
+        : "N";
+    const nextPassword = hasOwn("pwd_pw")
+      ? String(pwd_pw ?? "").trim()
+      : hasOwn("txt_emp_pw")
+        ? String(txt_emp_pw ?? "").trim()
+      : hasOwn("emp_pw")
+        ? String(emp_pw ?? "").trim()
+        : "";
+
+    const params = [
+      { name: "seq", type: sql.Int, value: targetSeq },
+      { name: "emp_id", type: sql.VarChar, value: nextEmpId },
+      { name: "emp_tel", type: sql.VarChar, value: nextEmpTel },
+      { name: "emp_email", type: sql.NVarChar, value: nextEmpEmail },
+      { name: "my_info", type: sql.NVarChar(sql.MAX), value: nextMyInfo },
+      { name: "emp_career", type: sql.NVarChar(sql.MAX), value: nextEmpCareer },
+      { name: "emp_app", type: sql.NVarChar(sql.MAX), value: nextEmpApp },
+      { name: "emp_desc", type: sql.NVarChar(sql.MAX), value: nextEmpDesc },
+      { name: "emp_photo", type: sql.Char(1), value: nextEmpPhoto }
+    ];
+
+    const setParts = [
+      "emp_tel = @emp_tel",
+      "emp_email = @emp_email",
+      "my_info = @my_info",
+      "emp_career = @emp_career",
+      "emp_app = @emp_app",
+      "emp_desc = @emp_desc",
+      "emp_photo = @emp_photo"
+    ];
+
+    if (nextPassword) {
+      setParts.push("emp_pw = CONVERT(VARBINARY(50), @emp_pw)");
+      setParts.push("pw_update = GETDATE()");
+      params.push({ name: "emp_pw", type: sql.VarChar, value: nextPassword });
+    }
+
+    const updateResult = await executeQuery(`
+      UPDATE [baroyeon_intra].[dbo].[EMP_BONSA]
+      SET ${setParts.join(", ")}
+      WHERE seq = @seq AND emp_id = @emp_id;
+      SELECT @@ROWCOUNT AS affected;
+    `, params);
+
+    if ((updateResult?.[0]?.affected ?? 0) === 0) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Employee not found.",
+        RET_CODE: "1004",
+      });
+    }
+
+    if (nextPassword) {
+      const hashedPassword = await hashPassword(nextPassword);
+      await executeQuery(`
+        UPDATE ADM_MEM
+        SET ADM_PW = @adm_pw
+        WHERE ADM_ID = @adm_id
+      `, [
+        { name: "adm_pw", type: sql.VarChar, value: hashedPassword },
+        { name: "adm_id", type: sql.VarChar, value: String(currentEmployee.emp_id || nextEmpId).trim() }
+      ]);
+    }
+
+    const [employee] = await executeQuery(`
+      SELECT TOP 1
+        seq, emp_id, emp_nm, emp_nm_real, dept_cd, clss_cd, duty_cd,
+        emp_tel, emp_tel2, emp_hp, emp_email, my_info,
+        emp_photo, photo_name, ins_day, quit_chk, quit_day, network
+      FROM [baroyeon_intra].[dbo].[view_EmpLIst]
+      WHERE seq = @seq
+    `, [{ name: "seq", type: sql.Int, value: targetSeq }]);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Employee updated.",
+      RET_CODE: "0000",
+      RET_DATA: employee || {
+        seq: targetSeq,
+        emp_id: nextEmpId,
+        emp_tel: nextEmpTel,
+        emp_email: nextEmpEmail,
+        my_info: nextMyInfo,
+        emp_career: nextEmpCareer,
+        emp_app: nextEmpApp,
+        emp_desc: nextEmpDesc
+      }
+    });
+  } catch (err) {
+    console.error("[EMPLOYEE_UPDATE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####       직원 정보 수정 (Employee Update) End        #####
+//#############################################################
+
+
+//#############################################################
+//#####       직원 사진 업로드 (Employee Photo Upload) Start #####
+//#############################################################
+const EMPLOYEE_PHOTO_UPLOAD = async (req, res) => {
+  try {
+    const files = req.files || [];
+    const targetSeq = parseInt(req.body?.emp_seq ?? req.body?.hd_emp_seq ?? req.body?.seq, 10);
+
+    if (!Number.isInteger(targetSeq)) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "Invalid employee sequence.",
+        RET_CODE: "1001",
+      });
+    }
+
+    if (!files.length) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "No files uploaded.",
+        RET_CODE: "1001",
+      });
+    }
+
+    const [employee] = await executeQuery(`
+      SELECT TOP 1 seq, emp_id, network, photo_name
+      FROM [baroyeon_intra].[dbo].[view_EmpLIst]
+      WHERE seq = @seq
+    `, [{ name: "seq", type: sql.Int, value: targetSeq }]);
+
+    if (!employee) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Employee not found.",
+        RET_CODE: "1004",
+      });
+    }
+
+    const file = files[0];
+    const originalName = decodeEmployeeUploadedOriginalName(file.originalname);
+    const ext = path.extname(originalName || file.originalname || "").toLowerCase();
+    const allowedExt = new Set([".jpg", ".jpeg", ".png", ".gif"]);
+
+    if (!allowedExt.has(ext)) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "Only jpg, jpeg, png, gif files are allowed.",
+        RET_CODE: "1002",
+      });
+    }
+
+    const safeEmpName = sanitizeEmployeePhotoFileName(String(employee.emp_id || employee.emp_nm || `emp_${targetSeq}`));
+    const saveFileName = `${safeEmpName}_${Date.now()}${ext}`;
+    const largeFileName = getEmployeePhotoLargeFileName(saveFileName);
+    const targetDir = getEmployeePhotoDirectory(employee.network);
+    const targetPath = path.join(targetDir, saveFileName);
+    const largeTargetPath = path.join(targetDir, largeFileName);
+    const originalTargetPath = path.join(EMPLOYEE_PHOTO_ORIGINAL_PATH, saveFileName);
+
+    await ensureDirectory(targetDir);
+    await ensureDirectory(EMPLOYEE_PHOTO_ORIGINAL_PATH);
+    await fs.promises.rename(file.path, targetPath);
+    await fs.promises.copyFile(targetPath, largeTargetPath);
+    await fs.promises.copyFile(targetPath, originalTargetPath);
+
+    await executeQuery(`
+      UPDATE [baroyeon_intra].[dbo].[EMP_BONSA]
+      SET photo_name = @photo_name,
+          emp_photo = 'Y'
+      WHERE seq = @seq
+    `, [
+      { name: "photo_name", type: sql.VarChar, value: saveFileName },
+      { name: "seq", type: sql.Int, value: targetSeq }
+    ]);
+
+    if (employee.photo_name && String(employee.photo_name).trim() && String(employee.photo_name).trim() !== saveFileName) {
+      const previousFileName = String(employee.photo_name).trim();
+      const previousLargeFileName = getEmployeePhotoLargeFileName(previousFileName);
+      const previousPhotoPath = path.join(targetDir, previousFileName);
+      const previousLargePhotoPath = path.join(targetDir, previousLargeFileName);
+
+      await fs.promises.unlink(previousPhotoPath).catch(() => {});
+      await fs.promises.unlink(previousLargePhotoPath).catch(() => {});
+    }
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Employee photo uploaded.",
+      RET_CODE: "0000",
+      RET_DATA: {
+        seq: targetSeq,
+        photo_name: saveFileName,
+        photo_Name: saveFileName,
+        emp_photo: "Y",
+        network: employee.network ?? ""
+      }
+    });
+  } catch (err) {
+    console.error("[EMPLOYEE_PHOTO_UPLOAD] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####       직원 사진 업로드 (Employee Photo Upload) End   #####
+//#############################################################
+
+
+//#############################################################
+//#####       마이페이지 상세 (My Page Detail) Start      #####
+//#############################################################
+const MYPAGE_DETAIL = async (req, res) => {
+  try {
+    const { emp_seq, hd_emp_seq, seq } = req.body || {};
+    const fallbackEmpSeq = req.user?.emp_seq ?? (await getEmployeeByAdmId(req.user?.ADM_ID))?.seq;
+    const targetSeq = parseInt(emp_seq ?? hd_emp_seq ?? seq ?? fallbackEmpSeq, 10);
+
+    if (!Number.isInteger(targetSeq)) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "Invalid employee sequence.",
+        RET_CODE: "1001",
+      });
+    }
+
+    req.body = { ...(req.body || {}), emp_seq: targetSeq };
+    return EMPLOYEE_DETAIL(req, res);
+  } catch (err) {
+    console.error("[MYPAGE_DETAIL] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####       마이페이지 상세 (My Page Detail) End        #####
+//#############################################################
+
+
+//#############################################################
+//#####       마이페이지 정보 수정 (My Page Update) Start      #####
+//#############################################################
+const MYPAGE_UPDATE = async (req, res) => {
+  try {
+    const fallbackEmpSeq = req.user?.emp_seq ?? (await getEmployeeByAdmId(req.user?.ADM_ID))?.seq;
+    req.body = {
+      ...(req.body || {}),
+      hd_emp_seq: req.body?.hd_emp_seq ?? fallbackEmpSeq,
+      emp_seq: req.body?.emp_seq ?? fallbackEmpSeq,
+      seq: req.body?.seq ?? fallbackEmpSeq,
+    };
+
+    return EMPLOYEE_UPDATE(req, res);
+  } catch (err) {
+    console.error("[MYPAGE_UPDATE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000",
+    });
+  }
+};
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const parseDbDateParts = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const source = String(value).trim();
+  const match = source.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3],
+    hour: match[4] ?? "00",
+    minute: match[5] ?? "00",
+    second: match[6] ?? "00"
+  };
+};
+
+const formatIntranetListDate = (value) => {
+  if (!value) return "";
+  const parsed = parseDbDateParts(value);
+  if (parsed) {
+    return `${parsed.year}-${parsed.month}-${parsed.day}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+};
+
+const formatIntranetDetailDateTime = (value) => {
+  if (!value) return "";
+  const parsed = parseDbDateParts(value);
+  if (parsed) {
+    const hour24 = parseInt(parsed.hour, 10) || 0;
+    const meridiem = hour24 < 12 ? "오전" : "오후";
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    return `${parsed.year}-${parsed.month}-${parsed.day} ${meridiem} ${hour12}:${parsed.minute}:${parsed.second}`;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const year = date.getFullYear();
+  const month = pad2(date.getMonth() + 1);
+  const day = pad2(date.getDate());
+  const hour24 = date.getHours();
+  const minute = pad2(date.getMinutes());
+  const second = pad2(date.getSeconds());
+  const meridiem = hour24 < 12 ? "오전" : "오후";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${year}-${month}-${day} ${meridiem} ${hour12}:${minute}:${second}`;
+};
+//#############################################################
+//#####       마이페이지 정보 수정 (My Page Update) End      #####
+//#############################################################
+
+
+//#############################################################
+//#####       게시판-공지사항 리스트 (Board List) Start      #####
+//#############################################################
+const INTRANET_BOARD_LIST = async (req, res) => {
+  try {
+    const {
+      ad_code,
+      numPage = 1,
+      TotalPage = 20,
+      col = "",
+      search = "",
+      network = "1"
+    } = req.body || {};
+
+    if (!ad_code) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code is required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const pageSize = Math.max(parseInt(TotalPage, 10) || 20, 1);
+    const page = Math.max(parseInt(numPage, 10) || 1, 1);
+    const skipCount = (page - 1) * pageSize;
+    const searchText = String(search ?? "").trim();
+    const searchCol = String(col ?? "").trim();
+
+    const boardInfo = await getBoardInfoWithAuthorization(ad_code, req.user);
+
+    const params = [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code) }
+    ];
+
+    let whereClause = "WHERE a.ad_code = @ad_code AND ISNULL(a.b_del, 0) = 0";
+    if (String(network) !== "1" && String(ad_code) === "A0001") {
+      whereClause += " AND ISNULL(a.jisa_open, 'N') = 'Y'";
+    }
+
+    if (searchText && ["b_title", "b_content", "emp_nm"].includes(searchCol)) {
+      whereClause += ` AND a.${searchCol} LIKE '%' + @search + '%'`;
+      params.push({ name: "search", type: sql.NVarChar, value: searchText });
+    }
+
+    const countRows = await executeQuery(`
+      SELECT COUNT(*) AS TOTAL_CNT
+      FROM [baroyeon_intra].[dbo].[Comm_Board] a
+      ${whereClause}
+    `, params);
+    const totalCount = countRows?.[0]?.TOTAL_CNT ?? 0;
+
+    const listRows = await executeQuery(`
+      SELECT *
+      FROM (
+        SELECT
+          ROW_NUMBER() OVER (ORDER BY a.b_notice DESC, a.b_idx DESC, a.Ref DESC, a.Re_step ASC) AS RowNum,
+          a.b_idx,
+          a.ad_code,
+          a.emp_no,
+          a.emp_nm,
+          a.emp_dept,
+          a.b_notice,
+          a.b_title,
+          a.b_content,
+          a.b_date,
+          a.Ref,
+          a.Re_step,
+          a.Re_level,
+          a.b_del,
+          a.b_ow,
+          a.b_ow1,
+          a.b_ow2,
+          a.cnt_hit,
+          a.cnt_comt,
+          a.cnt_reco,
+          a.ck_admin,
+          ISNULL((
+            SELECT COUNT(*)
+            FROM [baroyeon_intra].[dbo].[Comm_Board_file] bf
+            WHERE bf.b_idx = a.b_idx
+          ), 0) AS cnt_file
+        FROM [baroyeon_intra].[dbo].[Comm_Board] a
+        ${whereClause}
+      ) q
+      WHERE q.RowNum BETWEEN @startRow AND @endRow
+      ORDER BY q.RowNum ASC
+    `, [
+      ...params,
+      { name: "startRow", type: sql.Int, value: skipCount + 1 },
+      { name: "endRow", type: sql.Int, value: skipCount + pageSize }
+    ]);
+
+    const data = listRows.map((row, index) => {
+      const isNotice = Number(row.b_notice ?? 0) === 1;
+      const displayNo = isNotice ? "怨듭?" : String(totalCount - skipCount - index);
+
+      return {
+        ...row,
+        no: displayNo,
+        n: displayNo,
+        number: displayNo,
+        display_no: displayNo,
+        list_no: isNotice ? "" : displayNo,
+        is_notice: isNotice ? "Y" : "N",
+        title: row.b_title,
+        writer_name: row.emp_nm,
+        writer_dept_code: row.emp_dept,
+        created_at: row.b_date,
+        created_date_display: formatIntranetListDate(row.b_date),
+        b_date_display: formatIntranetListDate(row.b_date),
+        hit_count: Number(row.cnt_hit ?? 0),
+        comment_count: Number(row.cnt_comt ?? 0),
+        file_count: Number(row.cnt_file ?? 0),
+        has_file: Number(row.cnt_file ?? 0) > 0 ? "Y" : "N"
+      };
+    });
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board list loaded.",
+      RET_CODE: "0000",
+      RET_DATA: data,
+      BOARD_INFO: boardInfo,
+      PAGE_INFO: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / pageSize))
+      }
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_LIST] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 리스트 (Board List) End        #####
+//#############################################################
+
+
+//#############################################################
+//#####       게시판-공지사항 상세 (Board Detail) Start      #####
+//#############################################################
+const INTRANET_BOARD_DETAIL = async (req, res) => {
+  try {
+    const { ad_code, b_idx } = req.body || {};
+
+    if (!ad_code || !b_idx) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code and b_idx are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const params = [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code) },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) }
+    ];
+
+    const [boardInfo, boardDetail, employee] = await Promise.all([
+      getBoardInfoWithAuthorization(ad_code, req.user),
+      executeQuery(`
+        SELECT TOP 1
+          a.*,
+          ISNULL((
+            SELECT COUNT(*)
+            FROM [baroyeon_intra].[dbo].[Comm_Board_file] bf
+            WHERE bf.b_idx = a.b_idx
+          ), 0) AS cnt_file
+        FROM [baroyeon_intra].[dbo].[Comm_Board] a
+        WHERE a.ad_code = @ad_code
+          AND a.b_idx = @b_idx
+          AND ISNULL(a.b_del, 0) = 0
+      `, params).then((rows) => rows[0] || null),
+      getEmployeeByAdmId(req.user?.ADM_ID ?? req.user?.emp_id ?? "")
+    ]);
+
+    if (!boardDetail) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Post not found.",
+        RET_CODE: "1004"
+      });
+    }
+
+    const detailBoardInfo = buildBoardDetailAuthorization(boardInfo, boardDetail, employee, req.user);
+
+    const [files, comments, prevPost, nextPost] = await Promise.all([
+      executeQuery(`
+        SELECT *
+        FROM [baroyeon_intra].[dbo].[Comm_Board_file]
+        WHERE b_idx = @b_idx
+        ORDER BY f_idx ASC
+      `, [{ name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) }]),
+      getBoardComments(ad_code, b_idx),
+      executeQuery(`
+        SELECT TOP 1
+          b_idx, b_title, emp_nm, b_date, b_notice
+        FROM [baroyeon_intra].[dbo].[Comm_Board]
+        WHERE ad_code = @ad_code
+          AND b_idx < @b_idx
+          AND ISNULL(b_del, 0) = 0
+        ORDER BY b_idx DESC
+      `, params).then((rows) => rows[0] || null),
+      executeQuery(`
+        SELECT TOP 1
+          b_idx, b_title, emp_nm, b_date, b_notice
+        FROM [baroyeon_intra].[dbo].[Comm_Board]
+        WHERE ad_code = @ad_code
+          AND b_idx > @b_idx
+          AND ISNULL(b_del, 0) = 0
+        ORDER BY b_idx ASC
+      `, params).then((rows) => rows[0] || null)
+    ]);
+
+    const attachmentList = files.map((file) => ({
+      ...file,
+      file_name: file.f_name ?? file.ORIGINAL_FILENAME ?? "",
+      file_size: file.f_size ?? file.FILE_SIZE ?? 0,
+      file_date: file.f_date ?? "",
+      file_ext: String(file.f_name ?? file.ORIGINAL_FILENAME ?? "").includes(".")
+        ? String(file.f_name ?? file.ORIGINAL_FILENAME).split(".").pop().toLowerCase()
+        : ""
+    }));
+
+    const mapAdjacentPost = (row) => row ? ({
+      b_idx: row.b_idx,
+      title: row.b_title,
+      writer_name: row.emp_nm,
+      created_date_display: formatIntranetListDate(row.b_date),
+      is_notice: Number(row.b_notice ?? 0) === 1 ? "Y" : "N"
+    }) : null;
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board detail loaded.",
+      RET_CODE: "0000",
+      RET_DATA: {
+        ...boardDetail,
+        title: boardDetail.b_title,
+        writer_name: boardDetail.emp_nm,
+        writer_dept_code: boardDetail.emp_dept,
+        created_at: boardDetail.b_date,
+        created_date_display: formatIntranetListDate(boardDetail.b_date),
+        created_datetime_display: formatIntranetDetailDateTime(boardDetail.b_date),
+        b_date_display: formatIntranetDetailDateTime(boardDetail.b_date),
+        hit_count: Number(boardDetail.cnt_hit ?? 0),
+        comment_count: Number(boardDetail.cnt_comt ?? 0),
+        file_count: Number(boardDetail.cnt_file ?? 0),
+        is_notice: Number(boardDetail.b_notice ?? 0) === 1 ? "Y" : "N",
+        files: attachmentList,
+        comments: comments.map(mapBoardComment),
+        has_attachments: attachmentList.length > 0 ? "Y" : "N",
+        attachment_count: attachmentList.length,
+        prev_post: mapAdjacentPost(prevPost),
+        next_post: mapAdjacentPost(nextPost)
+      },
+      BOARD_INFO: detailBoardInfo
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_DETAIL] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 상세 (Board Detail) End        #####
+//#############################################################
+
+
+// 게시판 관련 공통 함수 (Board Common Functions)
+const getCurrentEmployeeForBoard = async (user) => (
+  getEmployeeByAdmId(user?.ADM_ID ?? user?.emp_id ?? "")
+);
+
+const getIntranetBoardWriteContext = async (adCode, user) => {
+  const [boardInfo, employee] = await Promise.all([
+    getBoardInfoWithAuthorization(adCode, user),
+    getCurrentEmployeeForBoard(user)
+  ]);
+
+  if (!boardInfo) {
+    return { status: 404, message: "Board not found." };
+  }
+
+  if (String(boardInfo.au_write ?? "N").trim().toUpperCase() !== "Y") {
+    return { status: 403, message: "You do not have permission to write to this board." };
+  }
+
+  if (!employee?.emp_id) {
+    return { status: 404, message: "Employee information not found." };
+  }
+
+  return { boardInfo, employee };
+};
+
+const getIntranetBoardAdminContext = async (adCode, bIdx, user) => {
+  const params = [
+    { name: "ad_code", type: sql.VarChar, value: String(adCode) },
+    { name: "b_idx", type: sql.Int, value: parseInt(bIdx, 10) }
+  ];
+
+  const [boardInfo, boardDetail, employee] = await Promise.all([
+    getBoardInfoWithAuthorization(adCode, user),
+    executeQuery(`
+      SELECT TOP 1 *
+      FROM [baroyeon_intra].[dbo].[Comm_Board]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND ISNULL(b_del, 0) = 0
+    `, params).then((rows) => rows[0] || null),
+    getCurrentEmployeeForBoard(user)
+  ]);
+
+  if (!boardInfo) {
+    return { status: 404, message: "Board not found." };
+  }
+
+  if (!boardDetail) {
+    return { status: 404, message: "Post not found." };
+  }
+
+  const detailBoardInfo = buildBoardDetailAuthorization(boardInfo, boardDetail, employee, user);
+  if (String(detailBoardInfo.au_admin ?? "N").trim().toUpperCase() !== "Y") {
+    return { status: 403, message: "You do not have permission to modify this post." };
+  }
+
+  return { boardInfo: detailBoardInfo, boardDetail, employee };
+};
+
+const canManageBoardNotice = (boardInfo, employee, boardDetail = null) => {
+  const isBoardAdmin = String(boardInfo?.comm_admin ?? boardInfo?.au_admin ?? "N").trim().toUpperCase() === "Y";
+  const dutyLevel = parseInt(employee?.duty_cd, 10);
+  const isHighDuty = Number.isFinite(dutyLevel) && dutyLevel <= 300;
+
+  if (!boardDetail) {
+    return isBoardAdmin || isHighDuty;
+  }
+
+  return String(boardInfo?.au_admin ?? "N").trim().toUpperCase() === "Y" || isHighDuty;
+};
+
+const getBoardOwSourceAdCode = (adCode) => (
+  String(adCode).trim() === "A0012" ? "A0006" : String(adCode).trim()
+);
+
+const getBoardOptionPayload = async (adCode) => {
+  const normalizedAdCode = String(adCode).trim();
+  const primarySourceAdCode = getBoardOwSourceAdCode(normalizedAdCode);
+
+  const [primaryRows, secondaryRows] = await Promise.all([
+    executeQuery(`
+      SELECT ow_type, idx, ow1_name, ow2_name
+      FROM [baroyeon_intra].[dbo].[Comm_Admin_ow]
+      WHERE ow_type = 1
+        AND ad_code = @ad_code
+      ORDER BY ow_type ASC, ow1_idx ASC, idx ASC
+    `, [{ name: "ad_code", type: sql.VarChar, value: primarySourceAdCode }]),
+    executeQuery(`
+      SELECT idx, ow1_idx, ow2_name
+      FROM [baroyeon_intra].[dbo].[Comm_Admin_ow]
+      WHERE ow_type = 2
+        AND ad_code = @ad_code
+      ORDER BY ow_type ASC, ow1_idx ASC, idx ASC
+    `, [{ name: "ad_code", type: sql.VarChar, value: normalizedAdCode }])
+  ]);
+
+  const secondaryByParent = secondaryRows.reduce((acc, row) => {
+    const parentKey = String(row.ow1_idx ?? "");
+    if (!acc[parentKey]) {
+      acc[parentKey] = [];
+    }
+
+    acc[parentKey].push({
+      value: Number(row.idx),
+      label: String(row.ow2_name ?? "").trim()
+    });
+
+    return acc;
+  }, {});
+
+  return {
+    primary: primaryRows.map((row) => ({
+      value: Number(row.idx),
+      label: String(row.ow1_name ?? row.ow2_name ?? "").trim()
+    })),
+    secondaryByParent
+  };
+};
+
+const getBoardFiles = async (adCode, bIdx) => (
+  executeQuery(`
+    SELECT *
+    FROM [baroyeon_intra].[dbo].[Comm_Board_file]
+    WHERE ad_code = @ad_code
+      AND b_idx = @b_idx
+    ORDER BY f_idx ASC
+  `, [
+    { name: "ad_code", type: sql.VarChar, value: String(adCode).trim() },
+    { name: "b_idx", type: sql.Int, value: parseInt(bIdx, 10) }
+  ])
+);
+
+const getBoardComments = async (adCode, bIdx) => (
+  executeQuery(`
+    SELECT *
+    FROM [baroyeon_intra].[dbo].[Comm_Board_comment]
+    WHERE ad_code = @ad_code
+      AND b_idx = @b_idx
+    ORDER BY c_idx DESC
+  `, [
+    { name: "ad_code", type: sql.VarChar, value: String(adCode).trim() },
+    { name: "b_idx", type: sql.Int, value: parseInt(bIdx, 10) }
+  ])
+);
+
+const mapBoardComment = (comment) => ({
+  ...comment,
+  comment_id: comment.c_idx,
+  writer_name: comment.emp_nm,
+  comment: comment.c_comment,
+  icon: Number(comment.c_icon ?? 1),
+  created_datetime_display: formatIntranetDetailDateTime(comment.c_date)
+});
+
+const syncBoardCommentCount = async (adCode, bIdx) => {
+  await executeQuery(`
+    UPDATE [baroyeon_intra].[dbo].[Comm_Board]
+    SET cnt_comt = (
+      SELECT COUNT(*)
+      FROM [baroyeon_intra].[dbo].[Comm_Board_comment]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+    )
+    WHERE ad_code = @ad_code
+      AND b_idx = @b_idx
+  `, [
+    { name: "ad_code", type: sql.VarChar, value: String(adCode).trim() },
+    { name: "b_idx", type: sql.Int, value: parseInt(bIdx, 10) }
+  ]);
+};
+
+const BOARD_FILE_SAVE_PATH = process.env.FILEUPLOAD_SAVE_PATH || "";
+
+const removeBoardFileFromDisk = async (fileName) => {
+  const normalizedFileName = String(fileName || "").trim();
+  if (!BOARD_FILE_SAVE_PATH || !normalizedFileName) {
+    return;
+  }
+
+  const targetPath = path.join(BOARD_FILE_SAVE_PATH, normalizedFileName);
+  if (!fs.existsSync(targetPath)) {
+    return;
+  }
+
+  await fs.promises.unlink(targetPath);
+};
+
+const decodeUploadedOriginalName = (value) => {
+  try {
+    return Buffer.from(String(value || ""), "latin1").toString("utf8");
+  } catch (error) {
+    return String(value || "");
+  }
+};
+
+const sanitizeBoardUploadName = (value) => (
+  String(value || "")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+);
+
+//#############################################################
+//#####       게시판-공지사항 옵션 (Board Options) Start      #####
+//#############################################################
+const INTRANET_BOARD_OPTIONS = async (req, res) => {
+  try {
+    const { ad_code } = req.body || {};
+
+    if (!ad_code) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code is required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const payload = await getBoardOptionPayload(ad_code);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board options loaded.",
+      RET_CODE: "0000",
+      RET_DATA: payload
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_OPTIONS] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 옵션 (Board Options) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 글쓰기 (Board Options) Start      #####
+//#############################################################
+const INTRANET_BOARD_CREATE = async (req, res) => {
+  try {
+    const {
+      ad_code,
+      mode = "write",
+      b_title,
+      b_content,
+      b_notice = "0",
+      jisa_open = "N",
+      b_html = "1",
+      b_ow1 = "",
+      b_ow2 = "",
+      Ref = 0,
+      Re_step = 0,
+      Re_level = 0,
+      ck_editor = "N"
+    } = req.body || {};
+
+    if (!ad_code || !String(b_title || "").trim() || !String(b_content || "").trim()) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code, b_title, and b_content are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardWriteContext(ad_code, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    const { boardInfo, employee } = context;
+    const isReply = String(mode).trim().toLowerCase() === "reply";
+    const canNotice = canManageBoardNotice(boardInfo, employee);
+    const nextNotice = canNotice && Number(String(b_notice).trim()) === 1 ? 1 : 0;
+    const nextOw1 = String(b_ow1 || "").trim();
+    const nextOw2 = String(b_ow2 || "").trim();
+    const nextHtml = String(b_html || "").trim() || "0";
+    const nextCkEditor = String(ck_editor || "").trim().toUpperCase() === "Y" ? "Y" : "N";
+    let nextRef = 0;
+    let nextReStep = 0;
+    let nextReLevel = 0;
+
+    if (isReply) {
+      nextRef = parseInt(Ref, 10) || 0;
+      nextReStep = (parseInt(Re_step, 10) || 0) + 1;
+      nextReLevel = (parseInt(Re_level, 10) || 0) + 1;
+
+      await executeQuery(`
+        UPDATE [baroyeon_intra].[dbo].[Comm_Board]
+        SET Re_step = Re_step + 1
+        WHERE ad_code = @ad_code
+          AND Ref = @ref
+          AND Re_step >= @re_step
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+        { name: "ref", type: sql.Int, value: nextRef },
+        { name: "re_step", type: sql.Int, value: nextReStep }
+      ]);
+    }
+
+    const [inserted] = await executeQuery(`
+      INSERT INTO [baroyeon_intra].[dbo].[Comm_Board] (
+        ad_code,
+        emp_no,
+        emp_nm,
+        emp_dept,
+        b_notice,
+        b_title,
+        b_content,
+        b_date,
+        b_html,
+        Ref,
+        Re_step,
+        Re_level,
+        b_del,
+        b_ow1,
+        b_ow2,
+        cnt_hit,
+        cnt_comt,
+        cnt_reco,
+        ck_admin,
+        ck_editor,
+        jisa_open
+      )
+      OUTPUT INSERTED.b_idx AS b_idx
+      VALUES (
+        @ad_code,
+        @emp_no,
+        @emp_nm,
+        @emp_dept,
+        @b_notice,
+        @b_title,
+        @b_content,
+        GETDATE(),
+        @b_html,
+        @ref,
+        @re_step,
+        @re_level,
+        0,
+        @b_ow1,
+        @b_ow2,
+        0,
+        0,
+        0,
+        'N',
+        @ck_editor,
+        @jisa_open
+      )
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "emp_no", type: sql.VarChar, value: String(employee.emp_id).trim() },
+      { name: "emp_nm", type: sql.NVarChar, value: String(employee.emp_nm || req.user?.ADM_ID || "").trim() },
+      { name: "emp_dept", type: sql.VarChar, value: String(employee.dept_cd || "").trim() },
+      { name: "b_notice", type: sql.Int, value: nextNotice },
+      { name: "b_title", type: sql.NVarChar, value: String(b_title).trim() },
+      { name: "b_content", type: sql.NVarChar(sql.MAX), value: String(b_content) },
+      { name: "b_html", type: sql.VarChar, value: nextHtml },
+      { name: "ref", type: sql.Int, value: nextRef },
+      { name: "re_step", type: sql.Int, value: nextReStep },
+      { name: "re_level", type: sql.Int, value: nextReLevel },
+      { name: "b_ow1", type: sql.VarChar, value: nextOw1 },
+      { name: "b_ow2", type: sql.VarChar, value: nextOw2 },
+      { name: "ck_editor", type: sql.Char, value: nextCkEditor },
+      { name: "jisa_open", type: sql.Char, value: String(jisa_open).trim().toUpperCase() === "Y" ? "Y" : "N" },
+    ]);
+
+    const createdIdx = inserted?.b_idx;
+    if (!createdIdx) {
+      throw new Error("Failed to create post.");
+    }
+
+    if (!isReply) {
+      await executeQuery(`
+        UPDATE [baroyeon_intra].[dbo].[Comm_Board]
+        SET Ref = @b_idx
+        WHERE b_idx = @b_idx
+      `, [{ name: "b_idx", type: sql.Int, value: createdIdx }]);
+    }
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board post created.",
+      RET_CODE: "0000",
+      RET_DATA: {
+        b_idx: createdIdx
+      }
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_CREATE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 글쓰기 (Board Create) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 수정 (Board Update) Start      #####
+//#############################################################
+const INTRANET_BOARD_UPDATE = async (req, res) => {
+  try {
+    const {
+      ad_code,
+      b_idx,
+      b_title,
+      b_content,
+      b_notice = "0",
+      jisa_open = "N",
+      b_html = "1",
+      b_ow1 = "",
+      b_ow2 = "",
+      ck_editor = "N"
+    } = req.body || {};
+
+    if (!ad_code || !b_idx || !String(b_title || "").trim() || !String(b_content || "").trim()) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code, b_idx, b_title, and b_content are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardAdminContext(ad_code, b_idx, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    const canNotice = canManageBoardNotice(context.boardInfo, context.employee, context.boardDetail);
+    const nextNotice = canNotice && Number(String(b_notice).trim()) === 1 ? 1 : 0;
+    const nextOw1 = String(b_ow1 || "").trim();
+    const nextOw2 = String(b_ow2 || "").trim();
+    const nextHtml = String(b_html || "").trim() || "0";
+    const nextCkEditor = String(ck_editor || "").trim().toUpperCase() === "Y" ? "Y" : "N";
+
+    await executeQuery(`
+      UPDATE [baroyeon_intra].[dbo].[Comm_Board]
+      SET
+        b_title = @b_title,
+        b_content = @b_content,
+        b_notice = @b_notice,
+        b_ow1 = @b_ow1,
+        b_ow2 = @b_ow2,
+        jisa_open = @jisa_open,
+        b_html = @b_html,
+        ck_editor = @ck_editor
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND ISNULL(b_del, 0) = 0
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+      { name: "b_title", type: sql.NVarChar, value: String(b_title).trim() },
+      { name: "b_content", type: sql.NVarChar(sql.MAX), value: String(b_content) },
+      { name: "b_notice", type: sql.Int, value: nextNotice },
+      { name: "b_ow1", type: sql.VarChar, value: nextOw1 },
+      { name: "b_ow2", type: sql.VarChar, value: nextOw2 },
+      { name: "jisa_open", type: sql.Char, value: String(jisa_open).trim().toUpperCase() === "Y" ? "Y" : "N" },
+      { name: "b_html", type: sql.VarChar, value: nextHtml },
+      { name: "ck_editor", type: sql.Char, value: nextCkEditor }
+    ]);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board post updated.",
+      RET_CODE: "0000",
+      RET_DATA: {
+        b_idx: parseInt(b_idx, 10)
+      }
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_UPDATE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 수정 (Board Update) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 삭제 (Board Delete) Start      #####
+//#############################################################
+const INTRANET_BOARD_DELETE = async (req, res) => {
+  try {
+    const { ad_code, b_idx } = req.body || {};
+
+    if (!ad_code || !b_idx) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code and b_idx are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardAdminContext(ad_code, b_idx, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    await executeQuery(`
+      UPDATE [baroyeon_intra].[dbo].[Comm_Board]
+      SET b_del = 1
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND ISNULL(b_del, 0) = 0
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) }
+    ]);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board post deleted.",
+      RET_CODE: "0000",
+      RET_DATA: {
+        b_idx: parseInt(b_idx, 10)
+      }
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_DELETE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 삭제 (Board Delete) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 파일업로드 (Board File Upload) Start      #####
+//#############################################################
+const INTRANET_BOARD_FILE_UPLOAD = async (req, res) => {
+  try {
+    const { ad_code, b_idx } = req.body || {};
+
+    if (!ad_code || !b_idx) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code and b_idx are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardAdminContext(ad_code, b_idx, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "No files uploaded.",
+        RET_CODE: "1001"
+      });
+    }
+
+    for (const file of files) {
+      const currentSavedName = String(file.filename || "").trim();
+      const decodedOriginalName = sanitizeBoardUploadName(decodeUploadedOriginalName(file.originalname));
+      const savedFileName = decodedOriginalName
+        ? `${path.parse(currentSavedName).name}__${decodedOriginalName}`
+        : currentSavedName;
+
+      if (savedFileName !== currentSavedName) {
+        const currentPath = path.join(BOARD_FILE_SAVE_PATH, currentSavedName);
+        const nextPath = path.join(BOARD_FILE_SAVE_PATH, savedFileName);
+        if (fs.existsSync(currentPath) && !fs.existsSync(nextPath)) {
+          await fs.promises.rename(currentPath, nextPath);
+        }
+      }
+
+      await executeQuery(`
+        INSERT INTO [baroyeon_intra].[dbo].[Comm_Board_file] (
+          ad_code,
+          b_idx,
+          f_name,
+          f_date
+        )
+        VALUES (
+          @ad_code,
+          @b_idx,
+          @f_name,
+          GETDATE()
+        )
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+        { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+        { name: "f_name", type: sql.NVarChar, value: savedFileName }
+      ]);
+    }
+
+    const uploadedFiles = await getBoardFiles(ad_code, b_idx);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board files uploaded.",
+      RET_CODE: "0000",
+      RET_DATA: uploadedFiles
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_FILE_UPLOAD] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 파일업로드 (Board File Upload) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 파일삭제 (Board File Delete) Start      #####
+//#############################################################
+const INTRANET_BOARD_FILE_DELETE = async (req, res) => {
+  try {
+    const { ad_code, b_idx, f_idx } = req.body || {};
+
+    if (!ad_code || !b_idx || !f_idx) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code, b_idx, and f_idx are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardAdminContext(ad_code, b_idx, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    const [targetFile] = await executeQuery(`
+      SELECT TOP 1 f_name
+      FROM [baroyeon_intra].[dbo].[Comm_Board_file]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND f_idx = @f_idx
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+      { name: "f_idx", type: sql.Int, value: parseInt(f_idx, 10) }
+    ]);
+
+    await executeQuery(`
+      DELETE FROM [baroyeon_intra].[dbo].[Comm_Board_file]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND f_idx = @f_idx
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+      { name: "f_idx", type: sql.Int, value: parseInt(f_idx, 10) }
+    ]);
+
+    await removeBoardFileFromDisk(targetFile?.f_name);
+
+    const files = await getBoardFiles(ad_code, b_idx);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board file deleted.",
+      RET_CODE: "0000",
+      RET_DATA: files
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_FILE_DELETE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 파일삭제 (Board File Delete) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 댓글 (Board Comment) Start      #####
+//#############################################################
+const INTRANET_BOARD_COMMENT_CREATE = async (req, res) => {
+  try {
+    const { ad_code, b_idx, c_comment, c_icon = 1 } = req.body || {};
+
+    if (!ad_code || !b_idx || !String(c_comment || "").trim()) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code, b_idx, and c_comment are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const context = await getIntranetBoardWriteContext(ad_code, req.user);
+    if (context?.status) {
+      return res.status(context.status).json({
+        RET_STAT: "fail",
+        RET_DESC: context.message,
+        RET_CODE: context.status === 403 ? "1003" : "1004"
+      });
+    }
+
+    const boardRows = await executeQuery(`
+      SELECT TOP 1 b_idx
+      FROM [baroyeon_intra].[dbo].[Comm_Board]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND ISNULL(b_del, 0) = 0
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) }
+    ]);
+
+    if (!boardRows[0]) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Post not found.",
+        RET_CODE: "1004"
+      });
+    }
+
+    const { employee } = context;
+    await executeQuery(`
+      INSERT INTO [baroyeon_intra].[dbo].[Comm_Board_comment] (
+        ad_code, b_idx, emp_no, emp_nm, emp_dept, c_icon, c_comment, c_date
+      )
+      VALUES (
+        @ad_code, @b_idx, @emp_no, @emp_nm, @emp_dept, @c_icon, @c_comment, GETDATE()
+      )
+    `, [
+      { name: "ad_code", type: sql.Char(5), value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+      { name: "emp_no", type: sql.VarChar(50), value: String(employee.emp_id).trim() },
+      { name: "emp_nm", type: sql.VarChar(20), value: String(employee.emp_nm || req.user?.ADM_ID || "").trim() },
+      { name: "emp_dept", type: sql.Char(10), value: String(employee.dept_cd || "").trim() },
+      { name: "c_icon", type: sql.TinyInt, value: Math.max(1, Math.min(parseInt(c_icon, 10) || 1, 9)) },
+      { name: "c_comment", type: sql.VarChar(2000), value: String(c_comment).trim() }
+    ]);
+
+    await syncBoardCommentCount(ad_code, b_idx);
+    const comments = await getBoardComments(ad_code, b_idx);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board comment created.",
+      RET_CODE: "0000",
+      RET_DATA: comments.map(mapBoardComment)
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_COMMENT_CREATE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 댓글 (Board Comment) End        #####
+//#############################################################
+
+//#############################################################
+//#####       게시판-공지사항 댓글삭제 (Board Comment Delete) Start      #####
+//#############################################################
+const INTRANET_BOARD_COMMENT_DELETE = async (req, res) => {
+  try {
+    const { ad_code, b_idx, c_idx } = req.body || {};
+
+    if (!ad_code || !b_idx || !c_idx) {
+      return res.status(400).json({
+        RET_STAT: "fail",
+        RET_DESC: "ad_code, b_idx, and c_idx are required.",
+        RET_CODE: "1001"
+      });
+    }
+
+    const [boardInfo, comment, employee] = await Promise.all([
+      getBoardInfoWithAuthorization(ad_code, req.user),
+      executeQuery(`
+        SELECT TOP 1 *
+        FROM [baroyeon_intra].[dbo].[Comm_Board_comment]
+        WHERE ad_code = @ad_code
+          AND b_idx = @b_idx
+          AND c_idx = @c_idx
+      `, [
+        { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+        { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+        { name: "c_idx", type: sql.Int, value: parseInt(c_idx, 10) }
+      ]).then((rows) => rows[0] || null),
+      getCurrentEmployeeForBoard(req.user)
+    ]);
+
+    if (!boardInfo) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Board not found.",
+        RET_CODE: "1004"
+      });
+    }
+
+    if (!comment) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "Comment not found.",
+        RET_CODE: "1004"
+      });
+    }
+
+    const boardAdminContext = await getIntranetBoardAdminContext(ad_code, b_idx, req.user);
+    const isAdmin = !boardAdminContext?.status;
+    const isWriter = String(comment.emp_no || "").trim().toLowerCase() === String(employee?.emp_id || "").trim().toLowerCase();
+
+    if (!isAdmin && !isWriter) {
+      return res.status(403).json({
+        RET_STAT: "fail",
+        RET_DESC: "You do not have permission to delete this comment.",
+        RET_CODE: "1003"
+      });
+    }
+
+    await executeQuery(`
+      DELETE FROM [baroyeon_intra].[dbo].[Comm_Board_comment]
+      WHERE ad_code = @ad_code
+        AND b_idx = @b_idx
+        AND c_idx = @c_idx
+    `, [
+      { name: "ad_code", type: sql.VarChar, value: String(ad_code).trim() },
+      { name: "b_idx", type: sql.Int, value: parseInt(b_idx, 10) },
+      { name: "c_idx", type: sql.Int, value: parseInt(c_idx, 10) }
+    ]);
+
+    await syncBoardCommentCount(ad_code, b_idx);
+    const comments = await getBoardComments(ad_code, b_idx);
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "Board comment deleted.",
+      RET_CODE: "0000",
+      RET_DATA: comments.map(mapBoardComment)
+    });
+  } catch (err) {
+    console.error("[INTRANET_BOARD_COMMENT_DELETE] error", err);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: err?.message || "Server error",
+      RET_CODE: "1000"
+    });
+  }
+};
+//#############################################################
+//#####       게시판-공지사항 댓글삭제 (Board Comment Delete) End        #####
+//#############################################################
+
+
 const ATTENDANCE_DAILY_SELECT = async (req, res) => {
   try {
     const {
@@ -3151,6 +5219,15 @@ module.exports = {
   POPUP_SELECT, POPUP_DETAIL, POPUP_REGIST, POPUP_UPDATE, POPUP_DELETE,
   SEO_SELECT, SEO_DETAIL, SEO_REGIST, SEO_UPDATE, SEO_DELETE,
   EMPLOYEE_SELECT, 
-  ATTENDANCE_DAILY_SELECT, ATTENDANCE_MONTHLY_SELECT
+  EMPLOYEE_DETAIL, EMPLOYEE_UPDATE, EMPLOYEE_PHOTO_UPLOAD,
+  MYPAGE_DETAIL, MYPAGE_UPDATE,
+  ATTENDANCE_DAILY_SELECT, ATTENDANCE_MONTHLY_SELECT,
+  INTRANET_BOARD_LIST, INTRANET_BOARD_DETAIL, INTRANET_BOARD_OPTIONS,
+  INTRANET_BOARD_CREATE, INTRANET_BOARD_UPDATE, INTRANET_BOARD_DELETE,
+  INTRANET_BOARD_FILE_UPLOAD, INTRANET_BOARD_FILE_DELETE,
+  INTRANET_BOARD_COMMENT_CREATE, INTRANET_BOARD_COMMENT_DELETE
 };
+
+
+
 
