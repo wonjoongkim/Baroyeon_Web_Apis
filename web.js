@@ -1,8 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+<<<<<<< HEAD
 const compression = require('compression');
 const { metricsMiddleware, metricsRouter } = require('./middleware/metrics');
 const { generalLimiter, authLimiter, uploadLimiter } = require('./middleware/rateLimit');
+=======
+const fs = require('fs');
+require('dotenv').config();
+>>>>>>> 44461884c7233b9b614c5a0a469c558ce536c929
 
 const app = express();
 app.disable('x-powered-by');
@@ -114,7 +119,13 @@ app.use('/api', generalLimiter);
 app.use('/api/_metrics', metricsRouter);
 
 // 라우트
+const employeePhotoBasePath = String(process.env.FILEUPLOAD_SAVE_PATH_EMPLOYEE || '').trim();
+if (employeePhotoBasePath && fs.existsSync(employeePhotoBasePath)) {
+  app.use('/xFile/Manager', express.static(employeePhotoBasePath));
+}
+
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/emfs', require('./routes/emfsRoutes'));
 app.use('/api/contract', require('./routes/contractRoutes'));
 
@@ -144,6 +155,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, () => {
   console.log(`🚀 서버 실행 중... Port:[${PORT}]`);
 });
+<<<<<<< HEAD
 
 // 소켓 타임아웃 - 이 값들이 없으면 끊어진 클라이언트의 연결과 그 요청 객체가
 // 계속 살아남아 메모리를 잠식한다.
@@ -173,3 +185,5 @@ process.on('uncaughtException', (err) => {
   server.close(() => process.exit(1));
   setTimeout(() => process.exit(1), 3000).unref();
 });
+=======
+>>>>>>> 44461884c7233b9b614c5a0a469c558ce536c929

@@ -58,8 +58,23 @@ const {
   SEO_UPDATE,
   SEO_DELETE,
   EMPLOYEE_SELECT,
+  EMPLOYEE_DETAIL,
+  EMPLOYEE_UPDATE,
+  EMPLOYEE_PHOTO_UPLOAD,
+  MYPAGE_DETAIL,
+  MYPAGE_UPDATE,
   ATTENDANCE_DAILY_SELECT,
   ATTENDANCE_MONTHLY_SELECT,
+  INTRANET_BOARD_LIST,
+  INTRANET_BOARD_DETAIL,
+  INTRANET_BOARD_OPTIONS,
+  INTRANET_BOARD_CREATE,
+  INTRANET_BOARD_UPDATE,
+  INTRANET_BOARD_DELETE,
+  INTRANET_BOARD_FILE_UPLOAD,
+  INTRANET_BOARD_FILE_DELETE,
+  INTRANET_BOARD_COMMENT_CREATE,
+  INTRANET_BOARD_COMMENT_DELETE,
 } = require("../controllers/adminController");
 
 const router = express.Router();
@@ -97,12 +112,12 @@ router.post("/ADM_LOGIN", async (req, res, next) => {
 //#####              ADMIN 정보 조회 Start                #####
 //############################################################
 router.post("/GET_LOGIN_INFO", async (req, res, next) => {
-  try {
+    try {
     await GET_LOGIN_INFO(req, res);
-  } catch (error) {
-    next(error);
-  }
-});
+    } catch (error) {
+      next(error);
+    }
+  });
 //############################################################
 //#####              ADMIN 정보 조회 End                  #####
 //############################################################
@@ -912,6 +927,41 @@ router.post("/EMPLOYEE_SELECT", verifyBearerToken, async (req, res, next) => {
     next(error);
   }
 });
+router.post("/EMPLOYEE_DETAIL", verifyBearerToken, async (req, res, next) => {
+  try {
+    await EMPLOYEE_DETAIL(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/EMPLOYEE_UPDATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await EMPLOYEE_UPDATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/EMPLOYEE_PHOTO_UPLOAD", verifyBearerToken, upload.array("files", 1), async (req, res, next) => {
+  try {
+    await EMPLOYEE_PHOTO_UPLOAD(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/MYPAGE_DETAIL", verifyBearerToken, async (req, res, next) => {
+  try {
+    await MYPAGE_DETAIL(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/MYPAGE_UPDATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await MYPAGE_UPDATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
 //#############################################################
 //#####             직원 리스트 (Employee) End             ######
 //#############################################################
@@ -949,5 +999,76 @@ router.post("/ATTENDANCE_SELECT/MONTHLY", verifyBearerToken, async (req, res, ne
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+
+router.post("/INTRANET_BOARD/LIST", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_LIST(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/DETAIL", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_DETAIL(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/OPTIONS", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_OPTIONS(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/CREATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_CREATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/UPDATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_UPDATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/DELETE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_DELETE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/FILE_UPLOAD", verifyBearerToken, upload.array("files", 10), async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_FILE_UPLOAD(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/FILE_DELETE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_FILE_DELETE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/COMMENT_CREATE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_COMMENT_CREATE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+router.post("/INTRANET_BOARD/COMMENT_DELETE", verifyBearerToken, async (req, res, next) => {
+  try {
+    await INTRANET_BOARD_COMMENT_DELETE(req, res);
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = router;
