@@ -24,5 +24,13 @@ const storage = multer.diskStorage({
   },
 });
 
-const editor = multer({ storage }); // 여기서 `.array(...)`는 라우터에서 사용
+// 용량 제한이 없으면 한 번의 요청으로 디스크와 메모리를 모두 소진시킬 수 있다.
+const editor = multer({
+  storage,
+  limits: {
+    fileSize: Number(process.env.UPLOAD_MAX_FILE_MB || 30) * 1024 * 1024,
+    files: Number(process.env.UPLOAD_MAX_FILES || 20),
+    fields: 200,
+  },
+}); // 여기서 `.array(...)`는 라우터에서 사용
 module.exports = editor;

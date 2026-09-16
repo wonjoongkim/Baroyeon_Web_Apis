@@ -1,3 +1,4 @@
+const { logQueryError } = require('../utils/logError');
 const { executeQuery } = require("../server/database");
 const sql = require("mssql");
 const bcrypt = require("bcrypt");
@@ -24,6 +25,8 @@ async function hashPassword(password) {
 //#####                 카카오 정보 Start                 #####
 //#############################################################
 const KAKAO_AUTH = async (req, res, next) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { code } = req.body; // 전달받은 code
     if (!code) {
@@ -66,6 +69,7 @@ const KAKAO_AUTH = async (req, res, next) => {
       }
     });
   } catch (error) {
+    logQueryError('KAKAO_AUTH', err, Query, params);
     console.error('❌ 카카오 인증 오류:', error.response?.data || error.message);
     return res.status(500).json({ message: '카카오 인증 실패', error: error.response?.data || error.message });
   }
@@ -117,6 +121,8 @@ const NAVER_AUTH = async (req, res, next) => {
 //#####                 네이버 콜백 Start                 #####
 //#############################################################
 const NAVER_CALLBACK = async (req, res, next) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   const { code, state } = req.query;
 
   try {
@@ -163,6 +169,7 @@ const NAVER_CALLBACK = async (req, res, next) => {
         if (baseAddress) payAddress = `${baseAddress} ${detailAddress}`;
       }
     } catch (e) {
+      logQueryError('NAVER_CALLBACK', err, Query, params);
       console.warn('Naver Pay address fetch skipped: ', e.response?.status, e.response?.data);
     }
 
@@ -196,6 +203,7 @@ const NAVER_CALLBACK = async (req, res, next) => {
       window.close();
     </script>`);
   } catch (error) {
+    logQueryError('네이버 인증 오류', err, Query, params);
     console.error('❌ 네이버 인증 오류:', error.response?.data || error.message);
     return res.status(500).json({ message: '네이버 인증 실패', error: error.response?.data || error.message });
   }
@@ -210,6 +218,8 @@ const NAVER_CALLBACK = async (req, res, next) => {
 //#####                회원가입 체크 Start                #####
 //#############################################################
 const MEM_CHK = async (req, res, next) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try{
     const { SNS_ID } = req.body;
 
@@ -221,8 +231,8 @@ const MEM_CHK = async (req, res, next) => {
       });
     }
 
-    const Query = ` SELECT IDX FROM SNS_MEM WHERE SNS_ID = @SNS_ID  `
-    const params = [
+    Query = ` SELECT IDX FROM SNS_MEM WHERE SNS_ID = @SNS_ID  `
+    params = [
       { name: "SNS_ID", type: sql.VarChar, value: SNS_ID }
     ];
 
@@ -234,7 +244,7 @@ const MEM_CHK = async (req, res, next) => {
       RET_DATA: {MEM_CHK: !!result[0]?.IDX ? "Y" : "N"}
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('MEM_CHK', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -252,9 +262,11 @@ const MEM_CHK = async (req, res, next) => {
 //#####                  상담원 정보 Start                #####
 //#############################################################
 const ManagerList = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
 try {
   const { NETWORK } = req.body;
-  const Query = `select seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email, photo_name, 
+  Query = `select seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email, photo_name, rk_order,
                     case when network = 1 and seq = 40 then 2 
                       when network = 1 and seq = 93 then 3 
                       when network = 1 and seq = 263 then 4 
@@ -262,7 +274,10 @@ try {
                       when network = 1 and seq = 935 then 6 
                       when network = 1 and seq = 940 then 7 
                       when network = 1 then 1 
-                      when network = 5 and seq = 1357 then 1 
+                      when network = 5 and seq = 1357 then 1
+                      when network = 5 and seq = 1415 then 2 
+					            when network = 5 and seq = 1480 then 3 
+						          when network = 5 and seq = 1477 then 4  
                       when network = 2 and seq = 1303 then 1 
                       when network = 2 and seq = 1301 then 2 
                       when network = 2 and seq = 1324 then 3 
@@ -276,8 +291,8 @@ try {
                 from [baroyeon_intra].[dbo].EMP_BONSA where network = @NETWORK
                 and (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y') AND
                 (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y')
-                order by rk_order asc, emp_level, sort asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
-  const params = [
+                order by rk_order asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
+  params = [
     {name: 'NETWORK', type:sql.Int, value: NETWORK}
   ]
   const result = await executeQuery(Query, params);
@@ -288,7 +303,7 @@ try {
     RET_DATA: result
   });
 } catch (err) {
-    console.error(err);
+    logQueryError('ManagerList', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -306,6 +321,8 @@ try {
 //#####             DB유입 등록 [토큰체크] Start           #####
 //#############################################################
 const DbInFlow = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const {
       network, uname, jumin1, sex, married, addr_code, addr_desc, job_code, school_code, tel_number, kakaoid, email, mail_yn, etc, 
@@ -350,30 +367,34 @@ const DbInFlow = async (req, res) => {
           RET_CODE: "2000"
         });
       } else {
-        const Query = `
+        Query = `
+          SET NOCOUNT ON;
           INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
-          ([network], [find_date], [input_date], [uname], [jumin1],
-          [sex], [married], [addr_code], [addr_desc], [job_code],
-          [school_code],
-          [tel_hand1], [tel_hand2], [tel_hand3],
-          [kakaoid], [email],
-          [mail_yn], [etc], [course_ln], [course_pg],
-          [course_code1], [course_code2], [course_ip],
-          [jumin2], [tel_hope_chk], [img_url_1], pg_num)
-          VALUES (
-          @network, GETDATE(), GETDATE(), @uname, @jumin1,
-          @sex, @married, @addr_code, @addr_desc, @job_code,
-          @school_code,
-          '010',
-          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
-          [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
-          @kakaoid,
-          [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
-          @mail_yn, @etc, @course_ln, @course_pg,
-          @course_code1, @course_code2, @course_ip,
-          @jumin2, @tel_hope_chk, @img_url_1, @pg_num
-        );`;
-        const params = [
+          (
+            [network], [find_date], [input_date], [uname], [jumin1],
+            [sex], [married], [addr_code], [addr_desc], [job_code],
+            [school_code],
+            [tel_hand1], [tel_hand2], [tel_hand3],
+            [kakaoid], [email],
+            [mail_yn], [etc], [course_ln], [course_pg],
+            [course_code1], [course_code2], [course_ip],
+            [jumin2], [tel_hope_chk], [img_url_1], pg_num)
+            VALUES (
+            @network, GETDATE(), GETDATE(), @uname, @jumin1,
+            @sex, @married, @addr_code, @addr_desc, @job_code,
+            @school_code,
+            '010',
+            [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+            [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+            @kakaoid,
+            [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('1', @email),
+            @mail_yn, @etc, @course_ln, @course_pg,
+            @course_code1, @course_code2, @course_ip,
+            @jumin2, @tel_hope_chk, @img_url_1, @pg_num
+          );
+          SELECT CAST(SCOPE_IDENTITY() AS INT) AS idx;
+        `;
+        params = [
           { name: "network", type: sql.Int, value: network },
           { name: "uname", type: sql.NVarChar, value: uname },
           { name: "jumin1", type: sql.Int, value: jumin1 },
@@ -390,8 +411,8 @@ const DbInFlow = async (req, res) => {
           { name: "etc", type: sql.NVarChar, value: etc },
           { name: "course_ln", type: sql.VarChar, value: course_ln },
           { name: "course_pg", type: sql.Int, value: course_pg },
-          { name: "course_code1", type: sql.Int, value: course_code1 },
-          { name: "course_code2", type: sql.Int, value: course_code2 },
+          { name: "course_code1", type: sql.Int, value: Number(course_code1) },
+          { name: "course_code2", type: sql.Int, value: Number(course_code2) },
           { name: "course_ip", type: sql.NVarChar, value: course_ip },
           { name: "jumin2", type: sql.Int, value: jumin2 },
           { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
@@ -400,16 +421,18 @@ const DbInFlow = async (req, res) => {
         ];
 
         const result = await executeQuery(Query, params);
+        const newIdx = result?.[0]?.idx;
+
         res.status(200).json({
           RET_STAT: "success",
           RET_DESC: "✅ 등록 성공",
           RET_CODE: "0000",
-          RET_DATA: result
+          RET_DATA: {Idx: newIdx}
         });
       }
     
   } catch (err) {
-    console.error(err);
+    logQueryError('DbInFlow', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -424,10 +447,57 @@ const DbInFlow = async (req, res) => {
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
+//#####         DB유입 업데이트 등록 [토큰체크] Start       #####
+//#############################################################
+const DbInFlow_Update = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
+  try {
+    const { etc = "", Idx } = req.body;
+    if (!Idx) {
+      return res.status(400).json({
+        RET_DATA: null,
+        RET_DESC: "❌ Idx 값이 필요합니다.",
+        RET_CODE: "1001",
+      });
+    }
+    Query = ` UPDATE [baroyeon_crm].[dbo].[asso_provide] SET etc = @etc WHERE idx = @Idx; `;
+    params = [
+      { name: "etc", type: sql.NVarChar, value: etc },
+      { name: "Idx", type: sql.Int, value: Idx },
+    ];
+
+    const result = await executeQuery(Query, params);
+    res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 등록 성공",
+      RET_CODE: "0000"
+    });
+ 
+    
+  } catch (err) {
+    logQueryError('DbInFlow_Update', err, Query, params);
+    res.status(500).json({ 
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####         DB유입 업데이트 등록 [토큰체크] End         #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
 //#####             DB유입 등록 [토큰X] Start           #####
 //#############################################################
 const DbInFlowNoAuth = async (req, res) => {
-  try {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
+    try {
     const {
       network, uname, addr_code, job_code, school_code, tel_number, mail_yn, etc,
       course_pg, course_code1, course_code2, course_ip, tel_hope_chk, pg_num,
@@ -437,10 +507,11 @@ const DbInFlowNoAuth = async (req, res) => {
 
     const ip = String(course_ip ?? "").trim();
 
+    //console.log(req.body);
+
     // ✅ 블랙리스트 (추가하기 쉬움)
     const BLACKLIST_IPS = new Set([
-      "43.255.29.71",
-      // "1.2.3.4",
+      "43.255.29.71", "178.235.253.236", "45.8.22.129"
     ]);
 
     if (BLACKLIST_IPS.has(ip)) {
@@ -477,7 +548,8 @@ const DbInFlowNoAuth = async (req, res) => {
           RET_CODE: "2000"
         });
       } else {
-        const Query = `
+        Query = `
+          SET NOCOUNT ON;
           INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
           ([network], [find_date], [input_date], [uname], [jumin1],
           [sex], [married], [addr_code], [addr_desc], [job_code],
@@ -499,8 +571,10 @@ const DbInFlowNoAuth = async (req, res) => {
           @mail_yn, @etc, 0, @course_pg,
           @course_code1, @course_code2, @course_ip,
           0, @tel_hope_chk, null, @pg_num
-        );`;
-        const params = [
+        );
+        SELECT CAST(SCOPE_IDENTITY() AS INT) AS idx;
+        `;
+        params = [
           { name: "network", type: sql.Int, value: network },
           { name: "uname", type: sql.NVarChar, value: uname },
           { name: "sex", type: sql.TinyInt, value: sex },
@@ -514,24 +588,26 @@ const DbInFlowNoAuth = async (req, res) => {
           { name: "mail_yn", type: sql.NVarChar, value: mail_yn },
           { name: "etc", type: sql.NVarChar, value: etc },
           { name: "course_pg", type: sql.Int, value: course_pg },
-          { name: "course_code1", type: sql.Int, value: course_code1 },
-          { name: "course_code2", type: sql.Int, value: course_code2 },
+          { name: "course_code1", type: sql.Int, value: Number(course_code1) },
+          { name: "course_code2", type: sql.Int, value: Number(course_code2) },
           { name: "course_ip", type: sql.NVarChar, value: course_ip },
           { name: "tel_hope_chk", type: sql.Int, value: tel_hope_chk },
           { name: "pg_num", type: sql.NVarChar, value: pg_num },
         ];
 
         const result = await executeQuery(Query, params);
+        const newIdx = result?.[0]?.idx;
+
         res.status(200).json({
           RET_STAT: "success",
           RET_DESC: "✅ 등록 성공",
           RET_CODE: "0000",
-          RET_DATA: result
+          RET_DATA: {Idx: newIdx}
         });
       }
    
   } catch (err) {
-    console.error(err);
+    logQueryError('DbInFlowNoAuth', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -544,11 +620,136 @@ const DbInFlowNoAuth = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+//#############################################################
+//#####           DB유입 등록 [토큰X, 블리비] Start         #####
+//#############################################################
+const DbInFlowNoAuth_VelyB = async (req, res) => {
+  let Query = "";
+  let params = [];
+
+  try {
+    const {
+      network, uname, uaddr_code, uschool_code, usex, uyear, uetc, umarry,
+      uaccountant_yn, ukid, uemail, utelnumber,
+      course_pg, course_code1, course_code2, course_ip,
+    } = req.body;
+
+    const ip = String(course_ip ?? "").trim();
+
+    // ✅ 블랙리스트 (추가하기 쉬움)
+    const BLACKLIST_IPS = new Set(["43.255.29.71"]);
+
+    if (BLACKLIST_IPS.has(ip)) {
+      return res.status(403).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+        RET_CODE: "2000",
+      });
+    }
+
+    // ✅ 전화번호 가공 (010-xxxx-xxxx)
+    const telHand1 = "010";
+    const telParam = [{ name: "rawTel", type: sql.VarChar, value: utelnumber }];
+
+    const telHand2Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @rawTel) AS val`;
+    const telHand3Query = `SELECT [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @rawTel) AS val`;
+
+    const [{ val: telHand2 }] = await executeQuery(telHand2Query, telParam);
+    const [{ val: telHand3 }] = await executeQuery(telHand3Query, telParam);
+
+    const fullPhone = `${telHand1}-${telHand2}-${telHand3}`;
+
+    let accountant_txt = "";
+    accountant_txt = (uaccountant_yn === "1") ? "희망" : "미희망";
+
+    // ✅ DB 블랙리스트 확인
+    const checkBlacklistQuery =
+      `SELECT CREATED_AT FROM [baroyeon_crm].[dbo].[asso_blacklist] WHERE HAND_TEL = @FullPhone`;
+    const checkParams = [{ name: "FullPhone", type: sql.VarChar, value: fullPhone }];
+    const [blackUser] = await executeQuery(checkBlacklistQuery, checkParams);
+
+    if (blackUser) {
+      return res.status(403).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
+        RET_CODE: "2000",
+      });
+    }
+
+    Query = `
+      SET NOCOUNT ON;
+      INSERT INTO [baroyeon_crm].[dbo].[asso_provide]
+      (
+        [network], [find_date], [input_date], [uname], [jumin1], [sex], [married], [addr_code], [school_code],
+        [tel_hand1], [tel_hand2], [tel_hand3], [email], [etc],
+        [course_ln], [course_pg], [course_code1], [course_code2], [course_ip]
+      )
+      VALUES
+      (
+        @network, GETDATE(), GETDATE(), @uname, @jumin1, @sex, @married, @addr_code, @school_code,
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '1', @tel_number),
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @tel_number),
+        [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @tel_number),
+        @email, @etc, 0, @course_pg, @course_code1, @course_code2, @course_ip
+      );
+
+      SELECT CAST(SCOPE_IDENTITY() AS INT) AS idx;
+    `;
+
+    params = [
+      { name: "network", type: sql.Int, value: Number(network) || 1 },
+      { name: "uname", type: sql.NVarChar, value: String(uname ?? "").trim() },
+      { name: "jumin1", type: sql.VarChar, value: String(uyear ?? "").trim() },
+      { name: "sex", type: sql.TinyInt, value: Number(usex) || 1 },
+      { name: "married", type: sql.TinyInt, value: Number(umarry) || 0 }, // 혹시 오타 대비
+      { name: "addr_code", type: sql.VarChar, value: String(uaddr_code ?? "").trim() },
+      { name: "school_code", type: sql.VarChar, value: String(uschool_code ?? "").trim() },
+      { name: "tel_number", type: sql.NVarChar, value: String(utelnumber ?? "").trim() },
+      { name: "email", type: sql.NVarChar, value: String(uemail ?? "").trim() },
+      {
+        name: "etc",
+        type: sql.NVarChar,
+        value: `- 블리비(VelyB) ${String(uetc ?? "").trim()}<br>- 방문상담:${accountant_txt}<br>- 희망횟수:${String(ukid ?? "").trim()}`,
+      },
+      { name: "course_pg", type: sql.Int, value: Number(course_pg) || 0 },
+      { name: "course_code1", type: sql.Int, value: Number(course_code1) || 0 },
+      { name: "course_code2", type: sql.Int, value: Number(course_code2) || 0 },
+      { name: "course_ip", type: sql.NVarChar, value: ip || "0.0.0.0" },
+    ];
+
+    const result = await executeQuery(Query, params);
+    const newIdx = result?.[0]?.idx;
+
+    return res.status(200).json({
+      RET_STAT: "success",
+      RET_DESC: "✅ 등록 성공",
+      RET_CODE: "0000",
+      RET_DATA: { Idx: newIdx },
+    });
+  } catch (err) {
+    logQueryError("DbInFlowNoAuth_VelyB", err, Query || "[no query]", params || []);
+    return res.status(500).json({
+      RET_STAT: "error",
+      RET_DESC: "❌ 서버 오류 발생",
+      RET_CODE: "1000",
+    });
+  }
+};
+//#############################################################
+//#####           DB유입 등록 [토큰X, 블리비] End           #####
+//#############################################################
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+
+
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
 //#####                성혼회원 후기 LIST Start            #####
 //#############################################################
 const HOLYREVIEW = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -562,16 +763,16 @@ const HOLYREVIEW = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       SELECT * FROM
-        (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX AS HOLY_IDX, TITLE, SUBJECT, CONTENTS, FILE_KEY, STATUS, CREATE_AT FROM HOLY_REVIEW 
+        (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX AS HOLY_IDX, TITLE, SUBJECT, FILE_KEY, STATUS, CREATE_AT FROM HOLY_REVIEW 
         WHERE STATUS = '1')AS HR
         LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = HR.FILE_KEY
       WHERE HR.ROWNUM  
         BETWEEN @startRow AND @endRow
       ORDER BY ROWNUM ASC, IDX DESC
     `;
-    const params = [
+    params = [
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
     ];
@@ -584,7 +785,7 @@ const HOLYREVIEW = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('HOLYREVIEW', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -602,6 +803,8 @@ const HOLYREVIEW = async (req, res) => {
 //#####             성혼회원 후기 상세정보 Start            #####
 //#############################################################
 const HOLYREVIEW_DETAIL = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { HOLY_IDX } = req.body;
 
@@ -613,7 +816,7 @@ const HOLYREVIEW_DETAIL = async (req, res) => {
       });
     }
       
-    const Query = ` SELECT HR.IDX, HR.TITLE, HR.SUBJECT, HR.CONTENTS, HR.FILE_KEY, HR.STATUS, HR.CREATE_AT, 
+    Query = ` SELECT HR.IDX, HR.TITLE, HR.SUBJECT, HR.CONTENTS, HR.FILE_KEY, HR.STATUS, HR.CREATE_AT, 
                       Prev.IDX AS Prev_IDX, Prev.TITLE AS Prev_TITLE, Next.IDX AS Next_IDX, Next.TITLE AS Next_TITLE,
                         FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
                     FROM HOLY_REVIEW HR
@@ -621,7 +824,7 @@ const HOLYREVIEW_DETAIL = async (req, res) => {
                     LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM HOLY_REVIEW WHERE IDX < @HOLY_IDX AND STATUS = '1' ORDER BY IDX DESC ) AS Prev ON 1=1
                     LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM HOLY_REVIEW WHERE IDX > @HOLY_IDX AND STATUS = '1' ORDER BY IDX ASC ) AS Next ON 1=1
                     WHERE HR.IDX = @HOLY_IDX `;
-    const params = [
+    params = [
       { name: 'HOLY_IDX', type: sql.Int, value: HOLY_IDX }
     ];
 
@@ -633,7 +836,7 @@ const HOLYREVIEW_DETAIL = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('HOLYREVIEW_DETAIL', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -651,6 +854,8 @@ const HOLYREVIEW_DETAIL = async (req, res) => {
 //#######    공지사항(Notice) & 뉴스(News) List Start    #######
 //#############################################################
 const N2N = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try{
     const { N2N_Type, numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -664,7 +869,7 @@ const N2N = async (req, res) => {
     });
   }
       
-    const Query = `
+    Query = `
       SELECT * FROM
         (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX, TYPE_ID, TITLE, CREATE_AT FROM NOTICE_NEWS 
         WHERE TYPE_ID = @N2N_Type AND STATUS = '1')AS TB
@@ -674,7 +879,7 @@ const N2N = async (req, res) => {
     `;
     const Query_Total = ` SELECT COUNT(*) AS TOTAL_CNT FROM NOTICE_NEWS WHERE TYPE_ID = @N2N_Type AND STATUS = '1' `;
 
-    const params = [
+    params = [
       { name: 'N2N_Type', type: sql.VarChar, value: String(N2N_Type) },
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
@@ -692,7 +897,7 @@ const N2N = async (req, res) => {
       TOTAL_COUNT: totalCount
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('N2N', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -710,6 +915,8 @@ const N2N = async (req, res) => {
 //######    공지사항(Notice) & 뉴스(News) Detail Start    ######
 //#############################################################
 const N2N_DETAIL = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try{
     const { N2N_Type, N2N_IDX } = req.body;
 
@@ -721,10 +928,10 @@ const N2N_DETAIL = async (req, res) => {
       });
     }     
   
-    const Query = ` SELECT IDX, TYPE_ID, TITLE, CONTENTS, TARGET_URL, FILE_KEY, CREATE_AT FROM NOTICE_NEWS 
+    Query = ` SELECT IDX, TYPE_ID, TITLE, CONTENTS, TARGET_URL, FILE_KEY, CREATE_AT FROM NOTICE_NEWS 
       WHERE TYPE_ID = @N2N_Type AND IDX = @N2N_Idx AND STATUS = '1'
     `;
-    const params = [
+    params = [
       { name: 'N2N_Idx', type: sql.VarChar, value: String(N2N_IDX) },
       { name: 'N2N_Type', type: sql.VarChar, value: String(N2N_Type) },
     ];
@@ -737,7 +944,7 @@ const N2N_DETAIL = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('N2N_DETAIL', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -755,6 +962,8 @@ const N2N_DETAIL = async (req, res) => {
 //#####              미팅, 이벤트 LIST  Start             ######
 //#############################################################
 const E2E = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { E2E_Type, numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -768,7 +977,7 @@ const E2E = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       SELECT TB.IDX, TB.TYPE_ID, TB.TITLE, TB.TITLE_SUB, TB.EVENT_START, TB.EVENT_END, TB.EVENT_DAY, TB.EVENT_PLACE, TB.EVENT_PEOPLE, 
       TB.CREATE_AT, FA.SAVE_FILENAME, FA.FILE_PATH FROM
         (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX, TYPE_ID, TITLE, TITLE_SUB, FILE_KEY, EVENT_START, EVENT_END, 
@@ -778,7 +987,7 @@ const E2E = async (req, res) => {
     `;
     const Query_Total = ` SELECT COUNT(*) AS TOTAL_CNT FROM MEETING_EVENT WHERE TYPE_ID = @E2E_Type AND STATUS = '1' `;
 
-    const params = [
+    params = [
       { name: 'E2E_Type', type: sql.VarChar, value: String(E2E_Type) },
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
@@ -796,7 +1005,7 @@ const E2E = async (req, res) => {
       TOTAL_COUNT: totalCount
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('E2E', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -814,6 +1023,8 @@ const E2E = async (req, res) => {
 //######              미팅, 이벤트 Detail Start           ######
 //#############################################################
 const E2E_DETAIL = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try{
     const { E2E_Type, E2E_IDX } = req.body;
 
@@ -825,7 +1036,7 @@ const E2E_DETAIL = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       SELECT IDX, TYPE_ID, TITLE, TITLE_SUB, EVENT_START, EVENT_END, EVENT_DAY, EVENT_PLACE, EVENT_PEOPLE, CONTENTS, FILE_KEY, CREATE_AT,
       (SELECT TOP 1 IDX FROM MEETING_EVENT WHERE TYPE_ID = @E2E_Type AND IDX < @E2E_Idx AND STATUS = '1' ORDER BY IDX DESC ) AS Prev_IDX,
       (SELECT TOP 1 TITLE FROM MEETING_EVENT WHERE TYPE_ID = @E2E_Type AND IDX < @E2E_Idx AND STATUS = '1' ORDER BY IDX DESC ) AS Prev_TITLE,
@@ -834,7 +1045,7 @@ const E2E_DETAIL = async (req, res) => {
       FROM MEETING_EVENT 
       WHERE TYPE_ID = @E2E_Type AND IDX = @E2E_Idx AND STATUS = '1'
     `;
-    const params = [
+    params = [
       { name: 'E2E_Idx', type: sql.VarChar, value: String(E2E_IDX) },
       { name: 'E2E_Type', type: sql.VarChar, value: String(E2E_Type) },
     ];
@@ -847,7 +1058,7 @@ const E2E_DETAIL = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('E2E_DETAIL', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -865,6 +1076,8 @@ const E2E_DETAIL = async (req, res) => {
 //#####             미팅_파티 후기 LIST Start            ######
 //#############################################################
 const M2R = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -877,7 +1090,7 @@ const M2R = async (req, res) => {
         RET_CODE: "1001",
       });
     }
-    const Query = ` SELECT * FROM (
+    Query = ` SELECT * FROM (
                       SELECT ROW_NUMBER() OVER (ORDER BY MPR.CARETE_AT DESC) AS ROWNUM,
                           MPR.IDX, MPR.MEETING_IDX, MPR.CARETE_AT, ME.TITLE, ME.TITLE_SUB, ME.EVENT_START, ME.EVENT_END, ME.EVENT_ING,
                           ME.EVENT_DAY, ME.EVENT_PLACE, ME.EVENT_PEOPLE,
@@ -891,7 +1104,7 @@ const M2R = async (req, res) => {
                   ORDER BY A.EVENT_START DESC `;
     const Query_Total = ` SELECT COUNT(*) AS TOTAL_CNT FROM MEETING_PARTY_REVIEW AS MPR LEFT JOIN MEETING_EVENT AS ME 
                             ON MPR.MEETING_IDX = ME.IDX WHERE MPR.STATUS = '1' `;
-    const params = [
+    params = [
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
     ];
@@ -908,7 +1121,7 @@ const M2R = async (req, res) => {
       TOTAL_COUNT: totalCount
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('M2R', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -926,6 +1139,8 @@ const M2R = async (req, res) => {
 //#####            미팅_파티 후기 DETAIL Start            ######
 //#############################################################
 const M2R_DETAIL = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try{
     const { M2R_IDX } = req.body;
 
@@ -937,7 +1152,7 @@ const M2R_DETAIL = async (req, res) => {
       });
     }
     
-    const Query = ` SELECT MPR.IDX, MPR.MEETING_IDX, MPR.CONTENTS, MPR.CARETE_AT, ME.TITLE, 
+    Query = ` SELECT MPR.IDX, MPR.MEETING_IDX, MPR.CONTENTS, MPR.CARETE_AT, ME.TITLE, 
                       Prev.IDX AS Prev_IDX, PrevEvent.TITLE AS Prev_TITLE,
                       Next.IDX AS Next_IDX, NextEvent.TITLE AS Next_TITLE
                   FROM MEETING_PARTY_REVIEW MPR
@@ -947,7 +1162,7 @@ const M2R_DETAIL = async (req, res) => {
                   LEFT JOIN ( SELECT TOP 1 IDX, MEETING_IDX FROM MEETING_PARTY_REVIEW WHERE IDX > 3 AND STATUS = '1' ORDER BY IDX ASC ) AS Next ON 1 = 1
                   LEFT JOIN MEETING_EVENT NextEvent ON NextEvent.IDX = Next.MEETING_IDX
                   WHERE MPR.STATUS = '1' AND MPR.IDX = @M2R_IDX `;
-    const params = [
+    params = [
       { name: 'M2R_IDX', type: sql.VarChar, value: String(M2R_IDX) }
     ];
 
@@ -959,7 +1174,7 @@ const M2R_DETAIL = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('M2R_DETAIL', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -979,13 +1194,15 @@ const M2R_DETAIL = async (req, res) => {
 //#############################################################
 
 const AdCategory = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     //const { numPage, TotalPage } = req.body
     const { numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
     const endRow = parseInt(numPage) * parseInt(TotalPage);
 
-    const Query = `
+    Query = `
       SELECT * FROM ( 
         SELECT 
           ROW_NUMBER() OVER(ORDER BY L1.IDX DESC) AS ROWNUM,
@@ -998,7 +1215,7 @@ const AdCategory = async (req, res) => {
       WHERE A.ROWNUM BETWEEN @startRow AND @endRow
       ORDER BY A.sort_order;
     `;
-      const params = [
+      params = [
         { name: 'startRow', type: sql.Int, value: startRow },
         { name: 'endRow', type: sql.Int, value: endRow }
       ];
@@ -1011,7 +1228,7 @@ const AdCategory = async (req, res) => {
         RET_DATA: result
       });
     } catch (err) {
-      console.error(err);
+      logQueryError('AdCategory', err, Query, params);
       res.status(500).json({ 
         RET_STAT: "error",
         RET_DESC: "❌ 서버 오류 발생",
@@ -1031,6 +1248,8 @@ const AdCategory = async (req, res) => {
 //#######     광고 캠페인 - 대,중,소 [토큰체크] Start       #####
 //#############################################################
 const AdCampaign = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     //const { numPage, TotalPage } = req.body
     const { numPage, TotalPage } = req.body;
@@ -1045,7 +1264,7 @@ const AdCampaign = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       SELECT * FROM ( 
         SELECT 
           ROW_NUMBER() OVER(ORDER BY A.PG_CODE DESC) AS ROWNUM,
@@ -1061,7 +1280,7 @@ const AdCampaign = async (req, res) => {
       WHERE A.ROWNUM BETWEEN @startRow AND @endRow
       ORDER BY A.CREATE_AT DESC;
     `;
-    const params = [
+    params = [
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
     ];
@@ -1074,7 +1293,7 @@ const AdCampaign = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('AdCampaign', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1092,6 +1311,8 @@ const AdCampaign = async (req, res) => {
 //#####              사용자 등록 Start                    ######
 //#############################################################
 const MEM_APPLY = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { 
       SNS_ID, 
@@ -1121,7 +1342,7 @@ const MEM_APPLY = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       INSERT INTO SNS_MEM 
       (SNS_ID, NAME, HAND_TEL, EMAIL, GENDER, BIRTH_DATE, ADDRESS, PROFILE_PICTURE
       , MARRY, SCHOOL, JOB_CODE, EMAIL_CHK, SMS_CHK , PROMISE1, PROMISE2, PROMISE3, SNS_TYPE)
@@ -1129,7 +1350,7 @@ const MEM_APPLY = async (req, res) => {
       (@SNS_ID, @NAME, [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2','0',@HAND_TEL), [baroyeon_crm].[dbo].UFN_GetHopeMaxCareer('2',@EMAIL)
       , @GENDER, @BIRTH_DATE, @ADDRESS, @PROFILE_PICTURE, @MARRY, @SCHOOL, @JOB_CODE, @EMAIL_CHK, @SMS_CHK , @PROMISE1, @PROMISE2, @PROMISE3, @PROVIDE)
     `;
-    const params = [
+    params = [
       { name: 'SNS_ID', type: sql.VarChar, value: SNS_ID },
       { name: 'NAME', type: sql.VarChar, value: NAME },
       { name: 'HAND_TEL', type: sql.VarChar, value: HAND_TEL },
@@ -1164,7 +1385,7 @@ const MEM_APPLY = async (req, res) => {
       RET_DATA: AccessToken
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('MEM_APPLY', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1182,6 +1403,8 @@ const MEM_APPLY = async (req, res) => {
 //#####              사용자 로그인 Start                  ######
 //#############################################################
 const MEM_LOGIN = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { SNS_ID } = req.body;
     
@@ -1192,8 +1415,8 @@ const MEM_LOGIN = async (req, res) => {
       });
     }
     
-    const Query = ` SELECT SNS_ID FROM SNS_MEM WHERE SNS_ID = @SNS_ID `;
-    const params = [
+    Query = ` SELECT SNS_ID FROM SNS_MEM WHERE SNS_ID = @SNS_ID `;
+    params = [
       { name: 'SNS_ID', type: sql.VarChar, value: SNS_ID }      
     ];
     const result = await executeQuery(Query, params);
@@ -1216,7 +1439,7 @@ const MEM_LOGIN = async (req, res) => {
       })
     }
   } catch (err) {
-    console.error(err);
+    logQueryError('MEM_LOGIN', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1234,10 +1457,12 @@ const MEM_LOGIN = async (req, res) => {
 //#####          사용자 목록 조회 (토큰체크) Start         ######
 //#############################################################
 const CODE_SELECT = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
    
   } catch (err) {
-    console.error(err);
+    logQueryError('CODE_SELECT', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1255,13 +1480,15 @@ const CODE_SELECT = async (req, res) => {
 //#####                랜딩 DB입력 Start                  ######
 //#############################################################
 const LANDING_APPLY = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { mem_id, marry_day, service, budget, pg, pg_code } = req.body;
-    const Query = ` INSERT INTO [baroyeon_crm].[dbo].[LANDING_Provide]
+    Query = ` INSERT INTO [baroyeon_crm].[dbo].[LANDING_Provide]
         ( mem_id, marry_day, service, budget, pg, pg_code )
       VALUES ( @mem_id, @marry_day, @service, @budget, @pg, @pg_code );
     `;
-    const params = [
+    params = [
       { name: "mem_id", type: sql.VarChar, value: mem_id },
       { name: "marry_day", type: sql.VarChar, value: marry_day },
       { name: "service", type: sql.VarChar, value: service },
@@ -1278,7 +1505,7 @@ const LANDING_APPLY = async (req, res) => {
       RET_DATA: ""
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('LANDING_APPLY', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1296,6 +1523,8 @@ const LANDING_APPLY = async (req, res) => {
 //#####                랜딩 리스트 Start                  ######
 //#############################################################
 const LANDING_LIST = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -1309,7 +1538,7 @@ const LANDING_LIST = async (req, res) => {
       });
     }
 
-    const Query = ` SELECT * FROM (
+    Query = ` SELECT * FROM (
                         SELECT 
                             ROW_NUMBER() OVER (ORDER BY A.CREATE_AT DESC) AS ROWNUM,
                             A.IDX, A.MEM_ID, A.MEMO, A.MARRY_DAY, A.SERVICE, A.BUDGET, A.PG, A.PG_CODE, A.CREATE_AT, A.STATUS,
@@ -1326,7 +1555,7 @@ const LANDING_LIST = async (req, res) => {
                     ) AS Result
                     WHERE ROWNUM BETWEEN @startRow AND @endRow
                     ORDER BY ROWNUM; `;
-    const params = [
+    params = [
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
     ];
@@ -1339,7 +1568,7 @@ const LANDING_LIST = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('LANDING_LIST', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1357,6 +1586,8 @@ const LANDING_LIST = async (req, res) => {
 //#####                랜딩 메모 Start                   ######
 //#############################################################
 const LANDING_MEMO = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { LANDING_IDX, MEMO } = req.body;
     if (!LANDING_IDX) {
@@ -1373,8 +1604,8 @@ const LANDING_MEMO = async (req, res) => {
       });
     }
 
-    const Query = ` UPDATE [baroyeon_crm].[dbo].[LANDING_Provide] SET MEMO = @MEMO WHERE IDX = @LANDING_IDX; `;
-    const params = [
+    Query = ` UPDATE [baroyeon_crm].[dbo].[LANDING_Provide] SET MEMO = @MEMO WHERE IDX = @LANDING_IDX; `;
+    params = [
       { name: "LANDING_IDX", type: sql.Int, value: LANDING_IDX },
       { name: "MEMO", type: sql.VarChar, value: MEMO },
     ];
@@ -1386,7 +1617,7 @@ const LANDING_MEMO = async (req, res) => {
       RET_DATA: ""
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('LANDING_MEMO', err, Query, params);
     res.status(500).json({ 
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1404,9 +1635,11 @@ const LANDING_MEMO = async (req, res) => {
 //#####                팝업 상세정보 Start                 #####
 //#############################################################
 const POPUP = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
 
-    const Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, PA.POPUP_CLOSE_CL, FA.SAVE_FILENAME, FA.FILE_PATH
+    Query = ` SELECT PA.TITLE, PA.TARGET_URL, PA.POPUP_AREA, PA.SHOW_DAY, PA.POPUP_CLOSE_CL, FA.SAVE_FILENAME, FA.FILE_PATH
                     FROM POPUP_ACTIVE PA
                     LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = PA.FILE_KEY
                     WHERE PA.IS_ACTIVE = 'Y'
@@ -1421,7 +1654,7 @@ const POPUP = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('POPUP', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1439,6 +1672,8 @@ const POPUP = async (req, res) => {
 //#####                 SEO POST LIST Start              #####
 //#############################################################
 const POST = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { numPage, TotalPage } = req.body;
     const startRow = (parseInt(numPage) - 1) * parseInt(TotalPage) + 1;
@@ -1452,16 +1687,16 @@ const POST = async (req, res) => {
       });
     }
 
-    const Query = `
+    Query = `
       SELECT * FROM
-        (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX AS POST_IDX, TITLE, SUBJECT, CONTENTS, FILE_KEY, STATUS, CREATE_AT FROM SEO_POST 
+        (SELECT ROW_NUMBER() OVER(ORDER BY IDX DESC)AS RowNum, IDX AS POST_IDX, TITLE, SUBJECT, FILE_KEY, STATUS, CREATE_AT FROM SEO_POST 
         WHERE STATUS = '1')AS SP
         LEFT JOIN FILE_ATTACH FA ON FA.FILE_KEY = SP.FILE_KEY
       WHERE SP.ROWNUM  
         BETWEEN @startRow AND @endRow
       ORDER BY ROWNUM ASC, IDX DESC
     `;
-    const params = [
+    params = [
       { name: 'startRow', type: sql.Int, value: startRow },
       { name: 'endRow', type: sql.Int, value: endRow }
     ];
@@ -1474,7 +1709,7 @@ const POST = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('POST', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1492,6 +1727,8 @@ const POST = async (req, res) => {
 //#####                SEO POST 상세정보 Start             #####
 //#############################################################
 const POST_DETAIL = async (req, res) => {
+  // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
+  let Query, params;
   try {
     const { POST_IDX } = req.body;
 
@@ -1503,7 +1740,7 @@ const POST_DETAIL = async (req, res) => {
       });
     }
 
-    const Query = ` SELECT SP.IDX, SP.TITLE, SP.SUBJECT, SP.CONTENTS, SP.FILE_KEY, SP.STATUS, SP.CREATE_AT, 
+    Query = ` SELECT SP.IDX, SP.TITLE, SP.SUBJECT, SP.CONTENTS, SP.FILE_KEY, SP.STATUS, SP.CREATE_AT, 
                       Prev.IDX AS Prev_IDX, Prev.TITLE AS Prev_TITLE, Next.IDX AS Next_IDX, Next.TITLE AS Next_TITLE,
                         FA.ORIGINAL_FILENAME, FA.SAVE_FILENAME, FA.FILE_PATH 
                     FROM SEO_POST SP
@@ -1511,7 +1748,7 @@ const POST_DETAIL = async (req, res) => {
                     LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM SEO_POST WHERE IDX < @POST_IDX AND STATUS = '1' ORDER BY IDX DESC ) AS Prev ON 1=1
                     LEFT JOIN ( SELECT TOP 1 IDX, TITLE FROM SEO_POST WHERE IDX > @POST_IDX AND STATUS = '1' ORDER BY IDX ASC ) AS Next ON 1=1
                     WHERE SP.IDX = @POST_IDX `;
-    const params = [
+    params = [
       { name: 'POST_IDX', type: sql.Int, value: POST_IDX }
     ];
 
@@ -1523,7 +1760,7 @@ const POST_DETAIL = async (req, res) => {
       RET_DATA: result
     });
   } catch (err) {
-    console.error(err);
+    logQueryError('POST_DETAIL', err, Query, params);
     res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -1543,7 +1780,9 @@ module.exports = {
   MEM_CHK,
   ManagerList,
   DbInFlow, 
+  DbInFlow_Update,
   DbInFlowNoAuth,
+  DbInFlowNoAuth_VelyB,
   HOLYREVIEW, 
   HOLYREVIEW_DETAIL, 
   M2R,

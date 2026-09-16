@@ -307,7 +307,7 @@ const EMFS_CODES = async (req, res) => {
 const EMFS_IMPORTANT = async (req, res) => {
   try {
     // query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND DEPTH = '1' AND LIVEDATE IS NULL ORDER BY SORT `
-    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND CODEKEY IN ('1','2','4','6','10') ORDER BY SORT  `
+    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND CODEKEY IN ('1','2','4','6','10','11') ORDER BY SORT `
     const CodeInfo = await executeQuery(query);
     
     return res.status(200).json({
@@ -516,9 +516,10 @@ const juminParams = [
 
 const [user_chk] = await executeQuery(Query_S, juminParams);
 
-// 완료/미완료 판단
-//const allOnes = !!user_chk && [1,2,3,4,5,6,7].every(i => Number(user_chk[`TAPMENU${i}`] ?? 0) === 1);
-//const stepIsOne = !!user_chk && Number(user_chk.STEP ?? 0) === 1;
+// 완료/미완료 판단 : TAPMENU1~7 + STEP 이 모두 '1' 이면 직전 매칭폼을 다 작성한 것으로 본다.
+const allOnes = !!user_chk && [1,2,3,4,5,6,7].every(i => Number(user_chk[`TAPMENU${i}`] ?? 0) === 1);
+const stepIsOne = !!user_chk && Number(user_chk.STEP ?? 0) === 1;
+const isCompleted = allOnes && stepIsOne;
 
 // 새 APPID 생성 쿼리/INSERT
 const Query_N = `
@@ -555,14 +556,14 @@ await executeQuery(Query_I, insertParams);
 let APPID = '';
 let STEPS = '0';
 
-if (!user_chk) {
+if (!user_chk || isCompleted) {
   // ▶ 레코드 없음 또는 모두 1(작성완료) → 새 APPID 생성
   const [user_n] = await executeQuery(Query_N);
   APPID = user_n.APPID;
   await insertNewAppMember(APPID);
   STEPS = '0'; // 새 신청서 시작
 } else {
-  // ▶ 이전 e-매칭폼이 없으면 → 기존 APPID 사용
+  // ▶ 작성 중인 e-매칭폼이 있으면 → 기존 APPID 사용
   APPID = user_chk.APPID;
 
   // 필요 시 진행도 계산 유지
@@ -1683,7 +1684,7 @@ const EMFS_APP3_SEL = async (req, res) => {
     const SQuery = ` SELECT
       Sch_Code, Sch_EYear, Sch_Etc, Sch_Grad, Sch_Location, Sch_Major as Sch_Specialty, Sch_Name, Sch_SYear
     FROM [baroyeon_crm].[dbo].[APPMEMBERPROFILE2_SCHOOL] 
-    WHERE APPID = @EMFS_APPID
+    WHERE APPID = @EMFS_APPID  ORDER BY Sch_Code ASC 
   `;
 
     const params = [{ name: 'EMFS_APPID', type: sql.VarChar, value: EMFS_APPID }];
@@ -2858,10 +2859,8 @@ const EMFS_APP8 = async (req, res) => {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
 module.exports = { 
-  EMFS_JOB, 
-  EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES, EMFS_IMPORTANT, EMFS_FILEUPLOAD, EMFS_FILEDELETE,
-  EMFS_LOGIN, 
-  INTRA_LOGIN,
+  EMFS_JOB, EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES, EMFS_IMPORTANT, EMFS_FILEUPLOAD, EMFS_FILEDELETE,
+  EMFS_LOGIN, INTRA_LOGIN,
   EMFS_AGREE, EMFS_AGREE_SEL,
   EMFS_APP,
   EMFS_APP1, EMFS_APP1_SEL,

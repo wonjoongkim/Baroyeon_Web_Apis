@@ -148,7 +148,9 @@ router.post("/EMFS_IMPORTANT", async (req, res, next) => {
 //#####            E-매칭폼 파일 업로드 Start             #####
 //############################################################
 
-router.post("/EMFS_FILEUPLOAD", editor.array("files", 1), verifyBearerToken, EMFS_FILEUPLOAD);
+// [순서 주의] 인증을 multer보다 먼저 태운다. 반대 순서면 토큰이 없는 요청도
+// 파일을 디스크에 다 쓴 뒤에야 401이 나가서, 인증 없이 저장소를 채울 수 있다.
+router.post("/EMFS_FILEUPLOAD", verifyBearerToken, editor.array("files", 1), EMFS_FILEUPLOAD);
 
 //############################################################
 //#####            E-매칭폼 파일 업로드 End               #####
