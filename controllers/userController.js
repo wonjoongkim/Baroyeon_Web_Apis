@@ -266,7 +266,6 @@ const ManagerList = async (req, res) => {
   let Query, params;
 try {
   const { NETWORK } = req.body;
-<<<<<<< HEAD
   Query = `select seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email, photo_name, rk_order,
                     case when network = 1 and seq = 40 then 2 
                       when network = 1 and seq = 93 then 3 
@@ -294,49 +293,6 @@ try {
                 (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y')
                 order by rk_order asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
   params = [
-=======
-    const Query = `select
-      seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email, photo_name,
-      case
-          when network = 1 and seq = 314 then 1  -- 최성희
-          when network = 1 and seq = 201 then 2  -- 전인선
-          when network = 1 and seq = 817 then 3  -- 김현주
-          when network = 1 and seq = 711 then 4  -- 조기숙
-          when network = 1 and seq = 384 then 5  -- 박민희
-          when network = 1 and seq = 965 then 6  -- 김영해
-          when network = 1 and seq = 103 then 7  -- 고혜명
-          when network = 1 and seq = 40  then 8  -- 여운경
-          when network = 1 and seq = 93  then 9  -- 정연희
-  
-          when network = 5 and seq = 1357 then 1
-          when network = 2 and seq = 1303 then 1
-          when network = 2 and seq = 1301 then 2
-          when network = 2 and seq = 1324 then 3
-          when network = 2 and seq = 1405 then 4
-          when network = 2 and seq = 1403 then 5
-          when network = 4 and seq = 1197 then 1
-          when network = 4 and seq = 1371 then 2
-          when network = 4 and seq = 1407 then 3
-          when network = 4 and seq = 1366 then 4
-  
-          when network = 1 then 99
-          else 99
-      end sort
-          from [baroyeon_intra].[dbo].EMP_BONSA
-        where network = @NETWORK
-          and quit_chk = 'N'
-          and dept_cd in (11000, 12000, 13000)
-          and emp_photo = 'Y'
-        order by
-          sort asc,
-          rk_order asc,
-          emp_level,
-          team_no,
-          emp_home_order desc,
-          emp_home_auth desc,
-          ins_day asc`;
-    const params = [
->>>>>>> 44461884c7233b9b614c5a0a469c558ce536c929
     {name: 'NETWORK', type:sql.Int, value: NETWORK}
   ]
   const result = await executeQuery(Query, params);
