@@ -1,5 +1,6 @@
 const express = require("express");
 const { verifyBearerToken } = require("../middleware/authMiddleware");
+const { internalOnly } = require("../middleware/ipAllow");
 const upload = require('../middleware/editor');
 const {
   KAKAO_AUTH,
@@ -32,18 +33,6 @@ const {
 } = require("../controllers/userController");
 
 const router = express.Router();
-
-const executeQuery = async (query, params = []) => {
-  const pool = await sql.connect(dbConfig);
-  const request = pool.request();
-
-  params.forEach(p => {
-    request.input(p.name, p.type, p.value);
-  });
-
-  const result = await request.query(query);
-  return result.recordset;
-};
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
@@ -420,7 +409,7 @@ router.post("/LANDING_APPLY", async (req, res, next) => {
 //#############################################################
 //#####                 랜딩 DB 리스트 Start              ######
 //#############################################################
-router.post("/LANDING_LIST", async (req, res, next) => {
+router.post("/LANDING_LIST", internalOnly, async (req, res, next) => {
   try {
     await LANDING_LIST(req, res);
   } catch (error) {
@@ -436,7 +425,7 @@ router.post("/LANDING_LIST", async (req, res, next) => {
 //#############################################################
 //#####                랜딩 메모 입력 Start               ######
 //#############################################################
-router.post("/LANDING_MEMO", async (req, res, next) => {
+router.post("/LANDING_MEMO", internalOnly, async (req, res, next) => {
   try {
     await LANDING_MEMO(req, res);
   } catch (error) {

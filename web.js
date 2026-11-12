@@ -1,8 +1,18 @@
+// [중요] .env 는 다른 어떤 모듈보다 먼저 읽는다. (rateLimit/metrics 등이 로드 시점에 process.env 를 읽는다)
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const { metricsMiddleware, metricsRouter } = require('./middleware/metrics');
 const { generalLimiter, authLimiter, uploadLimiter } = require('./middleware/rateLimit');
+
+// JWT 비밀키가 없으면 기본값으로 동작하지 않고 즉시 기동을 중단한다. (토큰 위조 방지)
+try {
+  require('./middleware/authMiddleware').getJwtSecret();
+} catch (e) {
+  console.error('❌ [기동 중단]', e.message);
+  process.exit(1);
+}
 
 const app = express();
 app.disable('x-powered-by');
@@ -79,9 +89,21 @@ app.use(cors(corsOptions));
 // 프리플라이트 응답
 app.options('*', cors(corsOptions), (req, res) => res.sendStatus(204));
 
-// 캐시/프록시 안전성을 위한 Vary 헤더
+// 캐시/프록시 안전성을 위한 Vary 헤더 + 기본 보안 헤더
+// (API 는 JSON 만 내려주므로 브라우저가 내용을 추측하거나 프레임에 넣지 못하게 막고,
+//  개인정보가 담긴 응답이 브라우저/프록시 캐시에 남지 않게 한다)
 app.use((req, res, next) => {
   res.header('Vary', 'Origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  if (req.path.startsWith('/api')) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+  }
   next();
 });
 
@@ -90,7 +112,7 @@ app.use((req, res, next) => {
 // 파일 업로드는 multer(multipart)가 디스크로 직접 받으므로 이 한도를 타지 않는다.
 // JSON/urlencoded 본문은 통째로 힙에 올라가기 때문에 크게 잡아두면 동시요청 몇 건에
 // 메모리가 바로 바닥난다. 실제 필요치(수백 KB)보다 넉넉한 선에서 제한한다.
-const JSON_LIMIT = process.env.BODY_LIMIT_JSON || '10mb';
+const JSON_LIMIT = process.env.BODY_LIMIT_JSON || '2mb';
 app.use(express.json({ limit: JSON_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: JSON_LIMIT }));
 
@@ -103,6 +125,8 @@ app.use([
   '/api/users/NAVER_CALLBACK',
   '/api/emfs/EMFS_LOGIN',
   '/api/emfs/INTRA_LOGIN',
+  '/api/emfs/EMFS_REOPEN',
+  '/api/contract/CHK_MEM', // 전화번호만으로 계약정보를 조회하므로 대입 시도를 제한
 ], authLimiter);
 app.use([
   '/api/emfs/EMFS_FILEUPLOAD',
@@ -127,18 +151,37 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   console.error(err);
 
-  // 에러 응답에도 CORS 헤더 보장
+  // 에러 응답에도 CORS 헤더 보장 — 허용된 Origin 일 때만 그대로 돌려준다. ("*" 는 쓰지 않는다)
   const origin = req.headers.origin;
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
     res.header('Vary', 'Origin');
   }
 
-  const status = err.status || 500;
-  res.status(status).json({ error: err.message || '서버 오류 발생!' });
+  // 상태코드 결정: CORS 차단 → 403, multer(용량/개수 초과) → 400, JSON 파싱 오류 → 400
+  let status = err.status || err.statusCode || 500;
+  let message = err.message;
+  if (typeof err.message === 'string' && err.message.startsWith('CORS 차단')) {
+    status = 403;
+    message = '허용되지 않은 출처입니다.';
+  } else if (err.name === 'MulterError') {
+    status = 400;
+    message = err.code === 'LIMIT_FILE_SIZE' ? '파일 용량이 너무 큽니다.' : '잘못된 업로드 요청입니다.';
+  } else if (err.type === 'entity.parse.failed') {
+    status = 400;
+    message = '잘못된 요청 형식입니다.';
+  } else if (err.type === 'entity.too.large') {
+    status = 413;
+    message = '요청 본문이 너무 큽니다.';
+  }
+
+  // 5xx 는 내부 사정(DB 오류 메시지, 경로 등)을 클라이언트에 그대로 내려주지 않는다.
+  if (status >= 500) message = '서버 오류 발생!';
+
+  res.status(status).json({ error: message });
 });
 
 const server = app.listen(PORT, () => {

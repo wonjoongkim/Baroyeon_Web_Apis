@@ -266,7 +266,10 @@ const ManagerList = async (req, res) => {
   let Query, params;
 try {
   const { NETWORK } = req.body;
-  Query = `select seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email, photo_name, rk_order,
+  Query = `select seq, clss_cd, duty_cd, emp_nm, my_info, emp_auth, emp_tel, emp_email,
+                    /* 사진을 안 올린 직원은 photo_name 이 NULL 이다. 그대로 내려보내면
+                       화면이 ".../manager/null" 로 이미지를 요청해 깨진다 - 빈 문자열로 맞춘다. */
+                    ISNULL(photo_name, '') AS photo_name, rk_order,
                     case when network = 1 and seq = 40 then 2 
                       when network = 1 and seq = 93 then 3 
                       when network = 1 and seq = 263 then 4 
@@ -288,9 +291,20 @@ try {
                       when network = 4 and seq = 1407 then 3 
                       when network = 4 and seq = 1366 then 4 
                     else 6 end sort
-                from [baroyeon_intra].[dbo].EMP_BONSA where network = @NETWORK
-                and (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y') AND
-                (quit_chk = 'N') AND (dept_cd IN (11000, 12000, 13000)) AND (emp_photo = 'Y')
+                from [baroyeon_intra].[dbo].EMP_BONSA
+                where network = @NETWORK
+                  and quit_chk = 'N'
+                  and dept_cd IN (11000, 12000, 13000)
+                  /* 홈페이지 노출 여부는 "홈페이지 매니저소개에 오픈"(emp_home) 하나로만 판단한다.
+                     체크를 켠 직원은 사진과 소개내용(my_info)이 홈페이지에 나가고, 끄면 아예 안 나간다.
+
+                     예전에는 여기에 emp_photo = 'Y' (직원정보 수정의 "사진등록" 체크)와
+                     photo_name 존재 여부까지 걸려 있었다. 그래서
+                       · 사진등록을 끄면 홈페이지 오픈을 켜 둬도 홈페이지에서 사라지고
+                       · 사진을 아직 안 올린 직원은 오픈을 켜도 나오지 않았다.
+                     "사진등록"은 관리자 화면 전용 설정이라 홈페이지 노출을 좌우하면 안 된다.
+                     사진이 없는 경우는 화면에서 기본 이미지로 처리한다. */
+                  and emp_home = 'Y'
                 order by rk_order asc, team_no, emp_home_order desc,  emp_home_auth desc, ins_day asc `
   params = [
     {name: 'NETWORK', type:sql.Int, value: NETWORK}

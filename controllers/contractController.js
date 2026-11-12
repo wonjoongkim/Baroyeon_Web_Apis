@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const { executeQuery, executeProcedure } = require("../server/database");
 const sql = require("mssql");
 require("dotenv").config();
@@ -61,6 +62,22 @@ const UPLOAD_CONTRACT = async (req, res) => {
                 RET_STAT: "fail",
                 RET_DESC: "계약서 전송 중 오류가 발생하였습니다. 다시 시도해주세요.",
                 RET_CODE: "1001"
+            });
+        }
+
+        // 확장자만 .pdf 로 속인 파일을 막는다. 실제 내용이 PDF(%PDF-)인지 앞 5바이트로 확인한다.
+        try {
+            const fd = fs.openSync(file.path, 'r');
+            const head = Buffer.alloc(5);
+            fs.readSync(fd, head, 0, 5, 0);
+            fs.closeSync(fd);
+            if (head.toString('latin1') !== '%PDF-') throw new Error('not pdf');
+        } catch (e) {
+            try { fs.unlinkSync(file.path); } catch (_) {}
+            return res.status(400).json({
+                RET_STAT: "fail",
+                RET_DESC: "PDF 파일만 업로드할 수 있습니다.",
+                RET_CODE: "1002"
             });
         }
 

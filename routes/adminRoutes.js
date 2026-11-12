@@ -64,18 +64,6 @@ const {
 
 const router = express.Router();
 
-const executeQuery = async (query, params = []) => {
-  const pool = await sql.connect(dbConfig);
-  const request = pool.request();
-
-  params.forEach(p => {
-    request.input(p.name, p.type, p.value);
-  });
-
-  const result = await request.query(query);
-  return result.recordset;
-};
-
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //############################################################
 //#####              ADMIN 로그인 Start                  #####

@@ -4,7 +4,36 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
+const loginLock = require("../middleware/loginLock");
 require("dotenv").config();
+const { getJwtSecret, JWT_ALGORITHMS, normalizeAppId } = require("../middleware/authMiddleware");
+
+// EMFS 토큰 발급 (typ 로 일반/관리자 토큰과 구분, 알고리즘 고정, 비밀키 기본값 없음)
+const signEmfsToken = (appId, expiresIn = process.env.EMFS_TOKEN_EXPIRES || "8h") =>
+  jwt.sign({ APPID: appId, typ: "emfs" }, getJwtSecret(), { algorithm: JWT_ALGORITHMS[0], expiresIn });
+
+// APP7 에서 클라이언트가 보내는 사진 참조(SAVE_FILE_NAME / YYYYMM)가 "내가 업로드한 파일" 형식인지 확인
+const isValidPhotoRef = (appId, saveFile, yyyymm) =>
+  new RegExp("^" + appId + "_\\d{1,2}\\.(jpg|jpeg|png|gif|pdf)$", "i").test(saveFile) &&
+  /^\/xApp\/photo\/\d{6}$/.test(yyyymm);
+
+// 진행 단계 계산 (로그인 / EMFS_CHK_SEL 공용)
+//  '0' 동의서1 미작성 / 'a2' 동의서2 미작성 / 'a3' 동의서3 미작성 / 't1'~'t7' 첫 미작성 탭 / 't8' 모두 작성
+const computeSteps = (u) => {
+  const hasAgree1 = u.U_AGREE1 == 1 || u.U_AGREE2 == 1 || u.U_AGREE3 == 1;
+  const hasAgree2 = u.U_AGREE6 == 1 || u.U_AGREE7 == 1 || (u.M_DATE_ADD || '').length > 0 || (u.UNAMESIGN_ADD || '').length > 0;
+  const hasAgree3 = u.U_AGREE5 == 1 || (u.U_AGREE5_DT || '').length > 0 || (u.INSERT_IP || '').length > 0 || (u.M_DATE || '').length > 0 || (u.UNAMESIGN || '').length > 0;
+
+  if (!hasAgree1) return '0';
+  if (hasAgree1 && !hasAgree2) return 'a2';
+  if (hasAgree1 && hasAgree2 && !hasAgree3) return 'a3';
+
+  const taps = [u.TAPMENU1, u.TAPMENU2, u.TAPMENU3, u.TAPMENU4, u.TAPMENU5, u.TAPMENU6, u.TAPMENU7];
+  const firstZeroIdx = taps.findIndex(v => Number(v) === 0);
+  if (firstZeroIdx >= 0) return `t${firstZeroIdx + 1}`;
+  return 't8';
+};
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //############################################################
@@ -34,82 +63,114 @@ const getYYYYMM = () => {
   return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
 };
 
-const EMFS_FILEUPLOAD = async (req, res) => {
+// ── 파일 시그니처(매직바이트) 검사 ───────────────────────────────
+// 확장자/Content-Type 은 클라이언트가 마음대로 쓸 수 있다. 실제 파일 앞부분으로 판별한다.
+const sniffFileType = async (filePath) => {
+  const fh = await fs.promises.open(filePath, "r");
   try {
-    const files = req.files;
-    const idx = parseInt(req.body.FileType);
-    const appId = String(req.body.EMFS_APPID ?? "").trim().padStart(6, "0");
+    const buf = Buffer.alloc(12);
+    await fh.read(buf, 0, 12, 0);
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpg";
+    if (buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
+    if (buf.slice(0, 4).toString("latin1") === "GIF8") return "gif";
+    if (buf.slice(0, 5).toString("latin1") === "%PDF-") return "pdf";
+    return null;
+  } finally {
+    await fh.close();
+  }
+};
 
-    if (!Number.isInteger(idx)) {
-      return res.status(400).json({
-        RET_DATA: null,
-        RET_DESC: "유효하지 않은 FileType 입니다.",
-        RET_CODE: "1005",
-      });
+const EXT_ALLOWED = ["jpg", "jpeg", "png", "pdf", "gif"];
+const EXT_GROUP = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", pdf: "pdf" };
+const MAX_PHOTO_MB = Number(process.env.EMFS_PHOTO_MAX_MB || 10);
+
+const safeUnlink = async (p) => {
+  try { if (p) await fs.promises.unlink(p); } catch (_) { /* 이미 없으면 무시 */ }
+};
+
+// rename 이 드라이브가 다른 경우(EXDEV) 실패하므로 복사 후 삭제로 대체한다.
+const moveFile = async (from, to) => {
+  try {
+    await fs.promises.rename(from, to);
+  } catch (e) {
+    if (e.code !== "EXDEV") throw e;
+    await fs.promises.copyFile(from, to);
+    await safeUnlink(from);
+  }
+};
+
+// 본인 APPID 는 항상 토큰에서 가져온다 (본문 값은 신뢰하지 않는다).
+const ownAppId = (req) => normalizeAppId(req.user && req.user.APPID);
+
+const EMFS_FILEUPLOAD = async (req, res) => {
+  const files = req.files || [];
+  const tempPath = files[0] && files[0].path;
+  const fail = async (status, code, desc) => {
+    await safeUnlink(tempPath); // 거부된 파일이 임시폴더에 쌓이지 않게 지운다
+    return res.status(status).json({ RET_DATA: null, RET_DESC: desc, RET_CODE: code });
+  };
+
+  try {
+    const idx = Number(req.body.FileType);
+    const appId = ownAppId(req);
+
+    if (!Number.isInteger(idx) || idx < 0 || idx > 19) {
+      return fail(400, "1005", "유효하지 않은 FileType 입니다.");
+    }
+    if (files.length === 0) {
+      return fail(400, "1001", "업로드할 파일이 없습니다.");
     }
 
-    if (!files || files.length === 0) {
-      return res.status(400).json({
-        RET_DATA: null,
-        RET_DESC: "업로드할 파일이 없습니다.",
-        RET_CODE: "1001",
-      });
-    }
-
-    // 저장 루트 경로
     const basePath = process.env.FILEUPLOAD_SAVE_PATH_MAPPINGAPP;
     if (!basePath) {
-      return res.status(500).json({
-        RET_DATA: null,
-        RET_DESC: "서버 설정에 FILEUPLOAD_SAVE_PATH_MAPPINGAPP 경로가 없습니다.",
-        RET_CODE: "1003",
-      });
-    }
-
-    // 오늘 날짜 폴더 경로
-    const yyyymm = getYYYYMM();
-    const targetDir = path.join(basePath, yyyymm);
-
-    // 폴더 없으면 생성
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
+      console.error("FILEUPLOAD_SAVE_PATH_MAPPINGAPP 미설정");
+      return fail(500, "1003", "서버 설정 오류");
     }
 
     const file = files[0];
+    if (!file.path) return fail(500, "1004", "서버 설정 오류");
 
-      const File_Ext = file.originalname.split(".").pop().toLowerCase();
-      const allowedExt = ["jpg", "jpeg", "png", "pdf", "gif"];
-      if (!allowedExt.includes(File_Ext)) {
-        return res.status(400).json({
-          RET_DATA: null,
-          RET_DESC: `허용되지 않은 파일 형식입니다: .${File_Ext}`,
-          RET_CODE: "1002",
-        });
-      }
+    // 1) 확장자 허용 목록
+    const File_Ext = path.extname(file.originalname || "").slice(1).toLowerCase();
+    if (!EXT_ALLOWED.includes(File_Ext)) {
+      return fail(400, "1002", "허용되지 않은 파일 형식입니다.");
+    }
 
-      // 새 파일명: APPID_idx.ext
-      const newFileName = `${appId}_${idx}.${File_Ext}`;
-      const newFilePath = path.join(targetDir, newFileName);
+    // 2) 용량
+    if (file.size > MAX_PHOTO_MB * 1024 * 1024) {
+      return fail(400, "1006", `파일 용량은 ${MAX_PHOTO_MB}MB 이하여야 합니다.`);
+    }
 
-      if (!file.path) {
-        return res.status(500).json({
-          RET_DATA: null,
-          RET_DESC: "multer가 diskStorage가 아닙니다. diskStorage로 설정하거나 buffer 저장 로직을 사용하세요.",
-          RET_CODE: "1004",
-        });
-      }
+    // 3) 실제 내용 검사 — 확장자와 파일 내용이 일치해야 한다 (위장 업로드 차단)
+    const real = await sniffFileType(file.path);
+    if (!real || real !== EXT_GROUP[File_Ext]) {
+      return fail(400, "1007", "파일 내용이 확장자와 일치하지 않습니다.");
+    }
 
-      // 업로드된 파일을 새 위치/이름으로 이동
-      fs.renameSync(file.path, newFilePath);
+    // 저장 위치: <루트>/<YYYYMM>/<APPID>_<idx>.<ext>  (파일명은 서버가 만든다)
+    const yyyymm = getYYYYMM();
+    const targetDir = path.join(basePath, yyyymm);
+    await fs.promises.mkdir(targetDir, { recursive: true });
 
-      const insertedFiles = {};
-      insertedFiles[idx] = {
-        FILE_PATH: newFilePath,
-        FULL_FILE_URL: `${targetDir}/${newFileName}`, // 절대 경로
-        ORG_FILE_NAME: file.originalname,
-        SAVE_FILE_NAME: newFileName,
-        YYYYMM: '/xApp/photo/' + yyyymm
-      };
+    const newFileName = `${appId}_${idx}.${File_Ext}`;
+    const newFilePath = path.join(targetDir, newFileName);
+
+    // 같은 슬롯에 확장자만 다른 이전 파일이 남지 않도록 정리
+    for (const ext of EXT_ALLOWED) {
+      if (ext !== File_Ext) await safeUnlink(path.join(targetDir, `${appId}_${idx}.${ext}`));
+    }
+
+    await moveFile(file.path, newFilePath);
+
+    // 서버의 절대경로는 클라이언트에 내려주지 않는다.
+    const insertedFiles = {};
+    insertedFiles[idx] = {
+      FILE_PATH: `${yyyymm}/${newFileName}`,
+      FULL_FILE_URL: `${yyyymm}/${newFileName}`,
+      ORG_FILE_NAME: path.basename(file.originalname || ""),
+      SAVE_FILE_NAME: newFileName,
+      YYYYMM: "/xApp/photo/" + yyyymm,
+    };
 
     return res.status(200).json({
       RET_STAT: "success",
@@ -119,6 +180,7 @@ const EMFS_FILEUPLOAD = async (req, res) => {
     });
   } catch (err) {
     console.error("파일 저장 중 오류 발생:", err);
+    await safeUnlink(tempPath);
     return res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
@@ -130,62 +192,67 @@ const EMFS_FILEUPLOAD = async (req, res) => {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 파일 삭제
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 경로 조작(../) 방지: 클라이언트가 보낸 FilePath/FileName 을 그대로 쓰지 않고
+//  - 파일명은 "<내APPID>_<숫자>.<허용확장자>" 형식만 허용
+//  - 폴더는 FilePath 의 마지막 6자리 숫자(YYYYMM)만 취해 서버가 경로를 조립
+//  - 최종 경로가 저장 루트 안인지 한 번 더 확인
 const EMFS_FILEDELETE = async (req, res) => {
   try {
-    const {EMFS_APPID, FileName, FilePath, FileType  } = req.body;
+    const { FileName, FilePath, FileType } = req.body;
+    const appId = ownAppId(req);
 
-    if (!EMFS_APPID || !FilePath || !FileName) {
-      return res.status(400).json({
-        RET_DATA: null,
-        RET_DESC: "필수 값이 누락되었습니다.",
-        RET_CODE: "1001",
-      });
+    if (!FilePath || !FileName) {
+      return res.status(400).json({ RET_DATA: null, RET_DESC: "필수 값이 누락되었습니다.", RET_CODE: "1001" });
     }
 
-    const Query = ` DELETE [baroyeon_crm].[dbo].APPMEMBERPROFILE5_PHOTO WHERE APPID = @EMFS_APPID AND P_TYPE = @P_TYPE `
-    // 안전한 숫자 변환 + 1 (1-base 보정)
-    const pType = Number.isFinite(+FileType) ? Number(FileType) + 1 : 1;
+    const typeNum = Number(FileType);
+    if (!Number.isInteger(typeNum) || typeNum < 0 || typeNum > 19) {
+      return res.status(400).json({ RET_DATA: null, RET_DESC: "유효하지 않은 FileType 입니다.", RET_CODE: "1005" });
+    }
 
-    // appID 공백 제거 및 길이 제한(선택)
-    const appId = (EMFS_APPID ?? '').toString().trim();
+    const nameMatch = /^(\d{6})_(\d{1,2})\.(jpg|jpeg|png|gif|pdf)$/i.exec(String(FileName));
+    if (!nameMatch || nameMatch[1] !== appId) {
+      return res.status(403).json({ RET_DATA: null, RET_DESC: "삭제할 수 없는 파일입니다.", RET_CODE: "1008" });
+    }
 
-    const Params = [
-      { name: 'EMFS_APPID', type: sql.VarChar(20), value: appId },
-      { name: 'P_Type',     type: sql.TinyInt,     value: FileType },   // ← tinyint로!
-    ];
-    await executeQuery(Query, Params);
+    const monthMatch = /(?:^|[\\/])(\d{6})$/.exec(String(FilePath).replace(/[\\/]+$/, ""));
+    if (!monthMatch) {
+      return res.status(400).json({ RET_DATA: null, RET_DESC: "유효하지 않은 경로입니다.", RET_CODE: "1009" });
+    }
+
+    const basePath = process.env.FILEUPLOAD_SAVE_PATH_MAPPINGAPP;
+    if (!basePath) {
+      console.error("FILEUPLOAD_SAVE_PATH_MAPPINGAPP 미설정");
+      return res.status(500).json({ RET_DATA: null, RET_DESC: "서버 설정 오류", RET_CODE: "1003" });
+    }
+    const root = path.resolve(basePath);
+    const deletePath = path.resolve(root, monthMatch[1], String(FileName));
+    if (!deletePath.startsWith(root + path.sep)) {
+      return res.status(403).json({ RET_DATA: null, RET_DESC: "삭제할 수 없는 파일입니다.", RET_CODE: "1008" });
+    }
+
+    // DB: 내 APPID 의 해당 슬롯만 삭제
+    const Query = ` DELETE [baroyeon_crm].[dbo].APPMEMBERPROFILE5_PHOTO WHERE APPID = @EMFS_APPID AND P_TYPE = @P_TYPE `;
+    await executeQuery(Query, [
+      { name: "EMFS_APPID", type: sql.VarChar(20), value: appId },
+      { name: "P_TYPE", type: sql.TinyInt, value: typeNum },
+    ]);
 
     // 실제 파일 삭제
-    DeletePath = path.join(process.env.FILEUPLOAD_SAVE_PATH_MAPPINGAPP, `${FilePath}/${FileName}`);
-
     try {
-      await fs.promises.unlink(DeletePath);
-      console.log(`✅ 파일 삭제 성공: ${DeletePath}`);
+      await fs.promises.unlink(deletePath);
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        console.warn(`⚠️ 파일이 존재하지 않아 삭제되지 않았습니다: ${DeletePath}`);
-      } else {
+      if (err.code !== "ENOENT") {
         console.error("❌ 파일 삭제 중 오류:", err);
-        return res.status(500).json({
-          RET_DATA: null,
-          RET_DESC: "❌ 파일 삭제 중 오류가 발생했습니다.",
-          RET_CODE: "1002",
-        });
+        return res.status(500).json({ RET_DATA: null, RET_DESC: "❌ 파일 삭제 중 오류가 발생했습니다.", RET_CODE: "1002" });
       }
     }
 
-    return res.status(200).json({
-      RET_DESC: "✅ 파일 삭제 완료",
-      RET_CODE: "0000",
-      RET_DATA: ""
-    });
+    return res.status(200).json({ RET_DESC: "✅ 파일 삭제 완료", RET_CODE: "0000", RET_DATA: "" });
   } catch (err) {
     console.error("❌ 파일 삭제 중 예외 발생:", err);
-    return res.status(500).json({
-      RET_DATA: null,
-      RET_DESC: `❌ 서버 오류 발생: ${err.message}`,
-      RET_CODE: "1000",
-    });
+    // 내부 오류 메시지는 클라이언트에 노출하지 않는다.
+    return res.status(500).json({ RET_DATA: null, RET_DESC: "❌ 서버 오류 발생", RET_CODE: "1000" });
   }
 };
 
@@ -276,7 +343,7 @@ const EMFS_CODES = async (req, res) => {
   try {
     const { DivCode, CodeGroup, AppId } = req.body;
 
-    query = ` SELECT CODEKEY, CODEVALUE, DEPTH, 
+    const query = ` SELECT CODEKEY, CODEVALUE, DEPTH, 
               (SELECT TOP 1 HOPEMATCH FROM [baroyeon_crm].[dbo].APPMEMBERPROFILE4 WHERE DIVCODE = @DIVCODE AND CODEKEY = DETCODE 
               AND APPID = @APPID ORDER BY COPYDIV DESC) AS CODEKEY_DATA
               FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH = '1' AND CODEGROUP =  @CODEGROUP AND LIVEDATE IS NULL ORDER BY SORT `
@@ -307,7 +374,7 @@ const EMFS_CODES = async (req, res) => {
 const EMFS_IMPORTANT = async (req, res) => {
   try {
     // query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND DEPTH = '1' AND LIVEDATE IS NULL ORDER BY SORT `
-    query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND CODEKEY IN ('1','2','4','6','10','11') ORDER BY SORT `
+    const query = ` SELECT CODEKEY, CODEVALUE FROM [baroyeon_crm].[dbo].xCodeList WHERE CODEGROUP = 'important' AND CODEKEY IN ('1','2','4','6','10','11') ORDER BY SORT `
     const CodeInfo = await executeQuery(query);
     
     return res.status(200).json({
@@ -350,7 +417,7 @@ try {
 
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = jwt.verify(token, getJwtSecret(), { algorithms: JWT_ALGORITHMS });
     } catch (err) {
       if (err.name === "TokenExpiredError") {
         return res.status(401).json({
@@ -460,38 +527,64 @@ const EMFS_LOGIN = async (req, res) => {
     // ─────────────────────────────────────────
     // 2) 메인 쿼리: 전화번호+이름으로 회원 조회
     // ─────────────────────────────────────────
+    // 생년월일(앞 6자리) / 성별자리(뒷 첫자리) 형식 확인
+    const birthStr = String(Emfs_IdNumberF).trim();
+    const backFirst = String(Emfs_IdNumberB).trim().charAt(0);
+    if (!/^\d{6}$/.test(birthStr) || !/^\d$/.test(backFirst)) {
+      return res.status(200).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 주민번호 형식이 올바르지 않습니다.",
+        RET_CODE: "1001"
+      });
+    }
+
+    // 이름은 공백을 모두 제거해 비교한다 ("김 철수" / "김철수" 차이 흡수)
+    const nameNorm = String(Emfs_Name).replace(/\s+/g, '');
+
+    // 같은 이름+전화번호로 연속 실패하면 잠시 잠근다 (IP를 바꿔가며 하는 대입 공격 방어)
+    const lockLeft = loginLock.lockedFor(nameNorm, phoneRaw);
+    if (lockLeft > 0) {
+      return res.status(200).json({
+        RET_DATA: null,
+        RET_DESC: `❌ 로그인 시도가 여러 번 실패하여 잠시 제한되었습니다. ${Math.ceil(lockLeft / 60000)}분 후 다시 시도해 주세요. 계속 어려우시면 담당 상담사에게 문의해 주세요.`,
+        RET_CODE: "2003"
+      });
+    }
+
     const params = [
       { name: 'Phone1Input', type: sql.VarChar, value: Phone1 },
       { name: 'RawPhoneInput', type: sql.VarChar, value: phoneRaw },
-      { name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
+      { name: 'NameNorm', type: sql.VarChar, value: nameNorm },
     ];
 
-    const Query = `
+    const PHONE_DECL = `
       DECLARE @Phone2 VARCHAR(10), @Phone3 VARCHAR(10), @FullPhone VARCHAR(20);
       SET @Phone2 = [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '2', @RawPhoneInput);
       SET @Phone3 = [baroyeon_crm].[dbo].UFN_GetHopeMaxLicense('2', '3', @RawPhoneInput);
       SET @FullPhone = @Phone1Input + '-' + @Phone2 + '-' + @Phone3;
-
-      SELECT TOP 1 a.idx, b.aid, a.last_counsel, a.state, a.c_manager AS counselor, a.network,
-                   a.cust_idx, a.uname, a.jumin1, a.jumin2, a.sex, a.married
-      FROM [baroyeon_crm].[dbo].Asso_mem a
-      INNER JOIN [baroyeon_crm].[dbo].baro_a001 b WITH (NOLOCK) ON a.idx = b.aid
-      WHERE LEN(@FullPhone) > 8
-        AND (
-          b.tel_hand = @FullPhone OR b.tel_home = @FullPhone OR
-          b.tel_etc_a = @FullPhone OR b.tel_etc_b = @FullPhone OR b.tel_etc_c = @FullPhone OR
-          b.cust_tel_hand = @FullPhone OR b.cust_tel_home = @FullPhone OR
-          b.cust_tel_etc_a = @FullPhone OR b.cust_tel_etc_b = @FullPhone OR b.cust_tel_etc_c = @FullPhone
-        )
-        AND a.uname = @Emfs_Name;
     `;
+    const PHONE_COLS = ['b.tel_hand','b.tel_home','b.tel_etc_a','b.tel_etc_b','b.tel_etc_c',
+                        'b.cust_tel_hand','b.cust_tel_home','b.cust_tel_etc_a','b.cust_tel_etc_b','b.cust_tel_etc_c'];
+    const PHONE_MATCH = `LEN(@FullPhone) > 8 AND (${PHONE_COLS.map(c => `${c} = @FullPhone`).join(' OR ')})`;
+    const NAME_MATCH = `REPLACE(a.uname, ' ', '') = @NameNorm`;
+    const selectBase = (top) => `
+      SELECT TOP ${top} a.idx, b.aid, a.last_counsel, a.state, a.c_manager AS counselor, a.network,
+             a.cust_idx, a.uname, a.jumin1, a.jumin2, a.sex, a.married
+      FROM [baroyeon_crm].[dbo].Asso_mem a
+      INNER JOIN [baroyeon_crm].[dbo].baro_a001 b WITH (NOLOCK) ON a.idx = b.aid`;
 
-    const [user] = await executeQuery(Query, params);
+    // 가입회원 매칭: 이름 + 전화번호만 확인한다. (이름은 공백 차이만 무시)
+    const rows = await executeQuery(
+      PHONE_DECL + selectBase(1) + ` WHERE ${PHONE_MATCH} AND ${NAME_MATCH};`,
+      params
+    );
+    const user = rows && rows[0];
 
     if (!user) {
+      loginLock.recordFail(nameNorm, phoneRaw);
       return res.status(200).json({
         RET_DATA: null,
-        RET_DESC: "❌ 가입회원에 존재하지 않습니다.",
+        RET_DESC: "❌ 입력하신 정보와 일치하는 가입회원이 없습니다. 상담 시 등록된 이름·전화번호와 다를 수 있으니 확인 후 다시 시도하시거나, 담당 상담사에게 문의해 주세요.",
         RET_CODE: "2000"
       });
     }
@@ -500,18 +593,19 @@ const EMFS_LOGIN = async (req, res) => {
 // 3) 이름+주민번호로 APPMEMBER 조회
 // ─────────────────────────────────────────
 const Query_S = `
-SELECT TOP 1 APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7, STEP, 
+SELECT TOP 1 APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7, STEP,
        U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4,
        U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
        U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
 FROM [baroyeon_crm].[dbo].APPMEMBER
-WHERE UNAME = @Emfs_Name AND REPLACE(JUMIN1, '-', '') = @Jumin1
+WHERE (UNAME = @Uname OR ASSO_IDX = @AssoIdx) AND REPLACE(JUMIN1, '-', '') = @Jumin1
 ORDER BY APPID DESC
 `;
 
 const juminParams = [
-{ name: 'Emfs_Name', type: sql.VarChar, value: Emfs_Name },
-{ name: 'Jumin1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
+{ name: 'Uname', type: sql.VarChar, value: user.uname },
+{ name: 'AssoIdx', type: sql.Int, value: user.idx },
+{ name: 'Jumin1', type: sql.Int, value: parseInt(birthStr, 10) },
 ];
 
 const [user_chk] = await executeQuery(Query_S, juminParams);
@@ -521,36 +615,41 @@ const allOnes = !!user_chk && [1,2,3,4,5,6,7].every(i => Number(user_chk[`TAPMEN
 const stepIsOne = !!user_chk && Number(user_chk.STEP ?? 0) === 1;
 const isCompleted = allOnes && stepIsOne;
 
-// 새 APPID 생성 쿼리/INSERT
-const Query_N = `
-SELECT APPID = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
-FROM [baroyeon_crm].[dbo].APPMEMBER
-`;
-const insertNewAppMember = async (newAppId) => {
+// 새 APPID 생성 + INSERT
+// 예전에는 MAX+1 조회와 INSERT 가 따로 실행되어, 동시에 두 명이 로그인하면 같은 APPID 가
+// 발급되고 두 사람의 매칭폼 데이터가 하나로 섞일 수 있었다. 한 배치 안에서 잠금을 잡고 처리한다.
+const insertNewAppMember = async () => {
 // 뒷자리는 UI 정책상 첫 자리만 의미 → '첫자리 + 000000'로 저장
-const jumin2Composed = String(Emfs_IdNumberB || '').charAt(0) + '000000';
+const jumin2Composed = backFirst + '000000';
 const Query_I = `
+  SET XACT_ABORT ON;
+  BEGIN TRAN;
+  DECLARE @NewAppId VARCHAR(6);
+  SELECT @NewAppId = RIGHT('000000' + CAST(ISNULL(MAX(APPID), 0) + 1 AS VARCHAR), 6)
+    FROM [baroyeon_crm].[dbo].APPMEMBER WITH (UPDLOCK, HOLDLOCK);
   INSERT INTO [baroyeon_crm].[dbo].APPMEMBER
   (APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, JUMIN2, SEX, FOREIGN_TYPE, FOREIGN_COUNTRY, STEP, REGDATE, REGTIME)
   VALUES
   (
-    @APPID, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2,
+    @NewAppId, @ASSO_IDX, 'C', @UNAME, @JUMIN1, @JUMIN2,
     LEFT(@JUMIN2, 1),
     @FOREIGN_TYPE, @FOREIGN_COUNTRY, '0',
     CONVERT(VARCHAR(8), GETDATE(), 112),
     REPLACE(CONVERT(VARCHAR(8), GETDATE(), 114), ':', '')
-  )
+  );
+  COMMIT TRAN;
+  SELECT @NewAppId AS APPID;
 `;
 const insertParams = [
-  { name: 'APPID', type: sql.VarChar, value: newAppId },
-  { name: 'ASSO_IDX', type: sql.Int, value: user.idx },      // 2) 메인 조회에서 얻은 사용자
+  { name: 'ASSO_IDX', type: sql.Int, value: user.idx },
   { name: 'UNAME', type: sql.VarChar, value: user.uname },
-  { name: 'JUMIN1', type: sql.Int, value: parseInt(Emfs_IdNumberF, 10) },
-  { name: 'JUMIN2', type: sql.VarChar, value: jumin2Composed }, // VarChar 권장
+  { name: 'JUMIN1', type: sql.Int, value: parseInt(birthStr, 10) },
+  { name: 'JUMIN2', type: sql.VarChar, value: jumin2Composed },
   { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
   { name: 'FOREIGN_COUNTRY', type: sql.VarChar, value: Emfs_Nationality },
 ];
-await executeQuery(Query_I, insertParams);
+const [created] = await executeQuery(Query_I, insertParams);
+return created.APPID;
 };
 
 let APPID = '';
@@ -558,36 +657,19 @@ let STEPS = '0';
 
 if (!user_chk || isCompleted) {
   // ▶ 레코드 없음 또는 모두 1(작성완료) → 새 APPID 생성
-  const [user_n] = await executeQuery(Query_N);
-  APPID = user_n.APPID;
-  await insertNewAppMember(APPID);
+  APPID = await insertNewAppMember();
   STEPS = '0'; // 새 신청서 시작
 } else {
   // ▶ 작성 중인 e-매칭폼이 있으면 → 기존 APPID 사용
   APPID = user_chk.APPID;
 
-  // 필요 시 진행도 계산 유지
-  const computeSteps = (u) => {
-    const hasAgree1 = u.U_AGREE1 == 1 || u.U_AGREE2 == 1 || u.U_AGREE3 == 1;
-    const hasAgree2 = u.U_AGREE6 == 1 || u.U_AGREE7 == 1 || (u.M_DATE_ADD || '').length > 0 || (u.UNAMESIGN_ADD || '').length > 0;
-    const hasAgree3 = u.U_AGREE5 == 1 || (u.U_AGREE5_DT || '').length > 0 || (u.INSERT_IP || '').length > 0 || (u.M_DATE || '').length > 0 || (u.UNAMESIGN || '').length > 0;
-
-    if (!hasAgree1) return '0';
-    if (hasAgree1 && !hasAgree2) return 'a2';
-    if (hasAgree1 && hasAgree2 && !hasAgree3) return 'a3';
-
-    const taps = [u.TAPMENU1,u.TAPMENU2,u.TAPMENU3,u.TAPMENU4,u.TAPMENU5,u.TAPMENU6,u.TAPMENU7];
-    const firstZeroIdx = taps.findIndex(v => Number(v) === 0);
-    if (firstZeroIdx >= 0) return `t${firstZeroIdx + 1}`;
-      return 't8';
-  };
   STEPS = computeSteps(user_chk);
 }
     // ─────────────────────────────────────────
     // 4) JWT 발급
     // ─────────────────────────────────────────
-    const secret = process.env.JWT_SECRET || 'CHANGE_ME_IN_PROD';
-    const AccessToken = jwt.sign({ APPID: APPID }, secret, { expiresIn: "8h" });
+    loginLock.clear(nameNorm, phoneRaw);
+    const AccessToken = signEmfsToken(APPID);
 
     // ─────────────────────────────────────────
     // 5) 성공 응답
@@ -628,47 +710,72 @@ if (!user_chk || isCompleted) {
 //#############################################################
 //#####        E-매칭폼 인트라 로그인 체크 Start           ######
 //#############################################################
+/*
+ * 인트라 → E-매칭폼 진입.
+ * 예전에는 EMFS_APPID 와 INTRA_MUID 문자열만 있으면 누구에게나 토큰을 발급했다.
+ * 즉 URL 의 APPID 만 바꾸면 다른 회원의 매칭폼을 열 수 있었다.
+ *
+ * INTRA_SHARED_SECRET 을 .env 에 설정하면 인트라가 만든 링크만 통과시킨다.
+ *   INTRA_TS  : 링크 생성 시각 (Unix 초 또는 밀리초)
+ *   INTRA_SIG : HMAC-SHA256(hex) = HMAC(INTRA_SHARED_SECRET, `${APPID}|${MUID}|${INTRA_TS}`)
+ * 시각은 INTRA_LINK_TTL_SEC(기본 600초) 안에서만 유효하다.
+ */
+let intraWarned = false;
 const INTRA_LOGIN = async (req, res) => {
   try {
-    const { EMFS_APPID, INTRA_MUID } = req.body;
+    const { EMFS_APPID, INTRA_MUID, INTRA_TS, INTRA_SIG } = req.body || {};
+    const rawAppId = String(EMFS_APPID ?? '').trim();
+    const rawMuid = String(INTRA_MUID ?? '').trim();
 
-    // ─────────────────────────────────────────
-    // 1) 유효성 검사
-    // ─────────────────────────────────────────
-    if (!EMFS_APPID || !INTRA_MUID) {
-      return res.status(200).json({
-        RET_DATA: null,
-        RET_DESC: "❌ 잘못된 접근이니다.",
-        RET_CODE: "1001"
-      });
+    if (!rawAppId || !rawMuid || !/^\d{1,10}$/.test(rawAppId) || rawMuid.length > 50) {
+      return res.status(200).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 접근이니다.", RET_CODE: "1001" });
     }
 
-    // ─────────────────────────────────────────
-    // 1) JWT 발급
-    // ─────────────────────────────────────────
-    const secret = process.env.JWT_SECRET || 'CHANGE_ME_IN_PROD';
-    const AccessToken = jwt.sign({ APPID: EMFS_APPID }, secret, { expiresIn: "8h" });
+    const intraSecret = process.env.INTRA_SHARED_SECRET;
+    if (intraSecret) {
+      let ts = Number(INTRA_TS);
+      if (!Number.isFinite(ts)) {
+        return res.status(200).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 접근이니다.", RET_CODE: "4010" });
+      }
+      if (ts < 1e12) ts *= 1000; // 초 단위면 밀리초로
+      const ttl = Number(process.env.INTRA_LINK_TTL_SEC || 600) * 1000;
+      if (Math.abs(Date.now() - ts) > ttl) {
+        return res.status(200).json({ RET_DATA: null, RET_DESC: "❌ 만료된 링크입니다. 인트라에서 다시 열어 주세요.", RET_CODE: "4011" });
+      }
+      const expected = crypto.createHmac('sha256', intraSecret)
+        .update(`${rawAppId}|${rawMuid}|${INTRA_TS}`).digest('hex');
+      const given = Buffer.from(String(INTRA_SIG ?? ''), 'utf8');
+      const exp = Buffer.from(expected, 'utf8');
+      if (given.length !== exp.length || !crypto.timingSafeEqual(given, exp)) {
+        console.warn(`⚠️ [INTRA_LOGIN] 서명 불일치 appid=${rawAppId} ip=${req.ip}`);
+        return res.status(200).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 접근이니다.", RET_CODE: "4012" });
+      }
+    } else if (!intraWarned) {
+      intraWarned = true;
+      console.warn("⚠️ [INTRA_LOGIN] INTRA_SHARED_SECRET 미설정 — 서명 검증 없이 동작 중입니다. 운영 환경에서는 설정을 권장합니다.");
+    }
 
-    // ─────────────────────────────────────────
-    // 2) 성공 응답
-    // ─────────────────────────────────────────
+    // 존재하는 매칭폼인지 확인 (없는 APPID 로 토큰이 발급되지 않게)
+    const appId = normalizeAppId(rawAppId);
+    const found = await executeQuery(
+      `SELECT TOP 1 APPID FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`,
+      [{ name: 'APPID', type: sql.VarChar, value: appId }]
+    );
+    if (!found || found.length === 0) {
+      return res.status(200).json({ RET_DATA: null, RET_DESC: "❌ 해당 매칭폼을 찾을 수 없습니다.", RET_CODE: "2000" });
+    }
+
+    const AccessToken = signEmfsToken(found[0].APPID, process.env.EMFS_INTRA_TOKEN_EXPIRES || "4h");
+
     return res.status(200).json({
-      RET_DATA: {
-        AccessToken,
-        APPID: EMFS_APPID,
-        STEPS: '1',
-      },
+      RET_DATA: { AccessToken, APPID: found[0].APPID, STEPS: '1' },
       RET_DESC: "✅ Login Success",
       RET_CODE: "0000"
     });
 
   } catch (err) {
     console.error("❌ 로그인 처리 중 오류:", err);
-    return res.status(500).json({
-      RET_DATA: null,
-      RET_DESC: "❌ 서버 오류 발생",
-      RET_CODE: "1000"
-    });
+    return res.status(500).json({ RET_DATA: null, RET_DESC: "❌ 서버 오류 발생", RET_CODE: "1000" });
   }
 };
 //############################################################
@@ -707,7 +814,8 @@ const EMFS_AGREE = async (req, res) => {
       });
     }
 
-    const USER_IP = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    // X-Forwarded-For 를 직접 읽으면 클라이언트가 값을 써넣을 수 있다(동의 증빙 IP 위조). trust proxy 가 해석한 req.ip 사용.
+    const USER_IP = req.ip || '';
 
     let Query = "";
     let params = [
@@ -752,7 +860,7 @@ const EMFS_AGREE = async (req, res) => {
         { name: "ERFS_NAME", type: sql.VarChar, value: ERFS_NAME }
       );
     } else if (AGREE_TYPE === '3') {
-      const { AgentSign, RelationShip, Birth, AgentTel1, AgentTel2, AgentTel3 } = ITEMSCONTAINER
+      const { AgentSign, RelationShip, Birth, AgentTel1, AgentTel2, AgentTel3 } = ITEMSCONTAINER || {};
       Query = `
         UPDATE [baroyeon_crm].[dbo].APPMEMBER 
         SET U_AGREE5 = '1', M_DATE = @M_DATE, UNAMESIGN = @ERFS_NAME, INSERT_IP = @INSERT_IP, 
@@ -816,9 +924,9 @@ const EMFS_AGREE_SEL = async (req, res) => {
     if (AGREE_TYPE === '1') {
       Query = ` SELECT U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4 FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID `;
     } else if (AGREE_TYPE === '2') {
-      Query = ` SELECT U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD [baroyeon_crm].[dbo].APPMEMBER FROM WHERE APPID = @APPID `;
+      Query = ` SELECT U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID `;
     } else if (AGREE_TYPE === '3') {
-      Query = ` SELECT U_AGREE5, M_DATE, UNAMESIGN, AGENTSIGN, RELATIONSHIP, BIRTH, AGENTTEL1, AGENTTEL2, AGENTTEL3, U_AGREE5_DT WHERE APPID = @APPID `;
+      Query = ` SELECT U_AGREE5, M_DATE, UNAMESIGN, AGENTSIGN, RELATIONSHIP, BIRTH, AGENTTEL1, AGENTTEL2, AGENTTEL3, U_AGREE5_DT FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID `;
     } else {
       return res.status(400).json({
         RET_DESC: "❌ AGREE_TYPE 값이 올바르지 않습니다.",
@@ -2719,7 +2827,7 @@ const EMFS_APP7 = async (req, res) => {
 
         const saveFile = (f?.SAVE_FILE_NAME ?? '').trim();
         const yyyymm   = (f?.YYYYMM ?? '').trim();
-        if (!saveFile || !yyyymm) {
+        if (!saveFile || !yyyymm || !isValidPhotoRef(normalizeAppId(EMFS_APPID), saveFile, yyyymm)) {
           console.warn('[EMFS_APP7] skip: fileinfo missing', { idx: i, saveFile, yyyymm });
           continue;
         }
@@ -2858,7 +2966,129 @@ const EMFS_APP8 = async (req, res) => {
 //#############################################################
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 
-module.exports = { 
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 회원 기본정보 조회 (본인)
+//  - 토큰의 APPID 로만 조회. 주민번호 뒷자리(JUMIN2)는 반환하지 않는다.
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+const EMFS_APPMEM = async (req, res) => {
+  try {
+    const appId = req.user.APPID;
+    const Query = `
+      SELECT TOP 1 APPID, ASSO_IDX, FORMTYPE, UNAME, JUMIN1, SEX, FOREIGN_TYPE, FOREIGN_COUNTRY,
+             STEP, REGDATE, REGTIME,
+             TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7
+      FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`;
+    const [info] = await executeQuery(Query, [{ name: 'APPID', type: sql.VarChar, value: appId }]);
+
+    if (!info) {
+      return res.status(404).json({ RET_DESC: "❌ 사용자 정보를 찾을 수 없습니다.", RET_CODE: "4003", RET_DATA: null });
+    }
+    return res.status(200).json({ RET_DESC: "✅ 정보 조회 성공", RET_CODE: "0000", RET_DATA: info });
+  } catch (err) {
+    console.error("❌ EMFS_APPMEM 오류:", err);
+    return res.status(500).json({ RET_DESC: "❌ 서버 오류 발생", RET_CODE: "1000", RET_DATA: null });
+  }
+};
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 회원정보 + 작성 진행상태 조회 (본인)
+//  - STEPS 는 로그인 응답과 같은 값 ('0' | 'a2' | 'a3' | 't1'~'t8')
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+const EMFS_CHK_SEL = async (req, res) => {
+  try {
+    const appId = req.user.APPID;
+    const Query = `
+      SELECT TOP 1 APPID, UNAME, STEP,
+             TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, TAPMENU7,
+             U_AGREE1, U_AGREE2, U_AGREE3, U_AGREE4, U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
+             U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
+      FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`;
+    const [u] = await executeQuery(Query, [{ name: 'APPID', type: sql.VarChar, value: appId }]);
+
+    if (!u) {
+      return res.status(404).json({ RET_DESC: "❌ 사용자 정보를 찾을 수 없습니다.", RET_CODE: "4003", RET_DATA: null });
+    }
+
+    const taps = {};
+    for (let i = 1; i <= 7; i++) taps[`TAPMENU${i}`] = Number(u[`TAPMENU${i}`] ?? 0);
+
+    return res.status(200).json({
+      RET_DESC: "✅ 정보 조회 성공",
+      RET_CODE: "0000",
+      RET_DATA: {
+        APPID: u.APPID,
+        UNAME: u.UNAME,
+        STEP: u.STEP,
+        STEPS: computeSteps(u),
+        ...taps,
+      },
+    });
+  } catch (err) {
+    console.error("❌ EMFS_CHK_SEL 오류:", err);
+    return res.status(500).json({ RET_DESC: "❌ 서버 오류 발생", RET_CODE: "1000", RET_DATA: null });
+  }
+};
+
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 상담원 재오픈 : 작성 완료된 매칭폼을 "수정 가능한 상태"로 되돌린다.
+//  - APPMEMBER.STEP 을 0 으로 되돌리면, 회원이 다시 로그인할 때 "완료된 폼"으로 보지 않고
+//    기존 APPID(기존 입력 내용)를 이어서 수정하게 된다. (완료 후 새로 작성하는 것이 아니라 수정)
+//  - 상담원 전용: INTRA_SHARED_SECRET 서명이 필수다. (미설정이면 기능을 막는다)
+//    INTRA_SIG = HMAC-SHA256(secret, `REOPEN|${APPID}|${MUID}|${INTRA_TS}`) (hex)
+//    로그인 링크 서명(INTRA_LOGIN)과 접두어(REOPEN|)가 달라, 로그인 링크로는 재오픈할 수 없다.
+//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+const EMFS_REOPEN = async (req, res) => {
+  try {
+    const intraSecret = process.env.INTRA_SHARED_SECRET;
+    if (!intraSecret) {
+      return res.status(503).json({ RET_DATA: null, RET_DESC: "❌ 재오픈 기능이 설정되지 않았습니다. (INTRA_SHARED_SECRET)", RET_CODE: "5030" });
+    }
+    const { EMFS_APPID, INTRA_MUID, INTRA_TS, INTRA_SIG } = req.body || {};
+    const rawAppId = String(EMFS_APPID ?? '').trim();
+    const rawMuid = String(INTRA_MUID ?? '').trim();
+    if (!/^\d{1,10}$/.test(rawAppId) || !rawMuid || rawMuid.length > 50) {
+      return res.status(400).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 요청입니다.", RET_CODE: "1001" });
+    }
+
+    let ts = Number(INTRA_TS);
+    if (!Number.isFinite(ts)) return res.status(403).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 접근입니다.", RET_CODE: "4010" });
+    if (ts < 1e12) ts *= 1000;
+    if (Math.abs(Date.now() - ts) > Number(process.env.INTRA_LINK_TTL_SEC || 600) * 1000) {
+      return res.status(403).json({ RET_DATA: null, RET_DESC: "❌ 만료된 요청입니다.", RET_CODE: "4011" });
+    }
+    const expected = crypto.createHmac('sha256', intraSecret)
+      .update(`REOPEN|${rawAppId}|${rawMuid}|${INTRA_TS}`).digest('hex');
+    const given = Buffer.from(String(INTRA_SIG ?? ''), 'utf8');
+    const exp = Buffer.from(expected, 'utf8');
+    if (given.length !== exp.length || !crypto.timingSafeEqual(given, exp)) {
+      console.warn(`⚠️ [EMFS_REOPEN] 서명 불일치 appid=${rawAppId} ip=${req.ip}`);
+      return res.status(403).json({ RET_DATA: null, RET_DESC: "❌ 잘못된 접근입니다.", RET_CODE: "4012" });
+    }
+
+    const appId = normalizeAppId(rawAppId);
+    const found = await executeQuery(
+      `SELECT TOP 1 APPID, STEP FROM [baroyeon_crm].[dbo].APPMEMBER WHERE APPID = @APPID`,
+      [{ name: APPID, type: sql.VarChar, value: appId }]
+    );
+    if (!found || found.length === 0) {
+      return res.status(404).json({ RET_DATA: null, RET_DESC: "❌ 해당 매칭폼을 찾을 수 없습니다.", RET_CODE: "2000" });
+    }
+
+    await executeQuery(
+      `UPDATE [baroyeon_crm].[dbo].APPMEMBER SET STEP = '0' WHERE APPID = @APPID`,
+      [{ name: APPID, type: sql.VarChar, value: appId }]
+    );
+    console.warn(`ℹ️ [EMFS_REOPEN] appid=${appId} muid=${rawMuid} prevStep=${found[0].STEP} ip=${req.ip}`);
+
+    return res.status(200).json({ RET_DATA: { APPID: appId }, RET_DESC: "✅ 수정 가능 상태로 변경되었습니다.", RET_CODE: "0000" });
+  } catch (err) {
+    console.error("❌ EMFS_REOPEN 오류:", err);
+    return res.status(500).json({ RET_DATA: null, RET_DESC: "❌ 서버 오류 발생", RET_CODE: "1000" });
+  }
+};
+
+module.exports = {
+  EMFS_APPMEM, EMFS_CHK_SEL, EMFS_REOPEN,
   EMFS_JOB, EMFS_JOBDETAIL, EMFS_SCHOOL, EMFS_CHK, EMFS_CODES, EMFS_IMPORTANT, EMFS_FILEUPLOAD, EMFS_FILEDELETE,
   EMFS_LOGIN, INTRA_LOGIN,
   EMFS_AGREE, EMFS_AGREE_SEL,
