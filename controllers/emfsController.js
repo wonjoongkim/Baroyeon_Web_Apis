@@ -598,14 +598,14 @@ SELECT TOP 1 APPID, TAPMENU1, TAPMENU2, TAPMENU3, TAPMENU4, TAPMENU5, TAPMENU6, 
        U_AGREE6, U_AGREE7, M_DATE_ADD, UNAMESIGN_ADD,
        U_AGREE5, U_AGREE5_DT, INSERT_IP, M_DATE, UNAMESIGN
 FROM [baroyeon_crm].[dbo].APPMEMBER
-WHERE (UNAME = @Uname OR ASSO_IDX = @AssoIdx) AND REPLACE(JUMIN1, '-', '') = @Jumin1
+WHERE (UNAME = @Uname OR ASSO_IDX = @AssoIdx) AND RIGHT('000000' + LTRIM(RTRIM(REPLACE(JUMIN1, '-', ''))), 6) = @Jumin1
 ORDER BY APPID DESC
 `;
 
 const juminParams = [
 { name: 'Uname', type: sql.VarChar, value: user.uname },
 { name: 'AssoIdx', type: sql.Int, value: user.idx },
-{ name: 'Jumin1', type: sql.Int, value: parseInt(birthStr, 10) },
+{ name: 'Jumin1', type: sql.VarChar, value: birthStr }, // 문자열 비교 - 옛 데이터에 '9109+8' 같은 숫자 아닌 값이 있어 int 비교는 변환 오류가 난다
 ];
 
 const [user_chk] = await executeQuery(Query_S, juminParams);
@@ -643,7 +643,8 @@ const Query_I = `
 const insertParams = [
   { name: 'ASSO_IDX', type: sql.Int, value: user.idx },
   { name: 'UNAME', type: sql.VarChar, value: user.uname },
-  { name: 'JUMIN1', type: sql.Int, value: parseInt(birthStr, 10) },
+  // 문자열 그대로 저장한다. Int 로 넣으면 '050101' 같은 0 으로 시작하는 생년월일이 '50101' 이 되어 앞자리가 사라진다.
+  { name: 'JUMIN1', type: sql.VarChar, value: birthStr },
   { name: 'JUMIN2', type: sql.VarChar, value: jumin2Composed },
   { name: 'FOREIGN_TYPE', type: sql.Int, value: nationalityInt },
   { name: 'FOREIGN_COUNTRY', type: sql.VarChar, value: Emfs_Nationality },
