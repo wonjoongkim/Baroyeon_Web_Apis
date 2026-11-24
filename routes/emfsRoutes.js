@@ -1,6 +1,6 @@
 const express = require("express");
 const { verifyEmfsToken, enforceOwnApp, emfsAuth } = require("../middleware/authMiddleware");
-const editor = require("../middleware/editor");
+const editor = require("../middleware/emfsPhotoUpload"); // 사진 전용 업로더(40MB) — 이 파일에서는 사진 업로드에만 쓴다
 
 const C = require("../controllers/emfsController");
 

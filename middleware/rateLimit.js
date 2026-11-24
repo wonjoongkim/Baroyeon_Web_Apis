@@ -87,4 +87,61 @@ const uploadLimiter = rateLimit({
   },
 });
 
-module.exports = { generalLimiter, authLimiter, uploadLimiter };
+/*
+ * E-매칭폼 로그인 전용 제한.
+ *
+ * 문제: 로그인 요청에는 토큰이 없어 위의 authLimiter 가 "접속 IP" 하나로 센다(5분 20회).
+ * 휴대폰 데이터망(LTE/5G)은 통신사가 한 공인 IP 를 수백~수천 명이 나눠 쓰는 경우가 많고(CGNAT),
+ * 문자 안내 직후처럼 같은 시간대에 여러 회원이 접속하면 서로 한도를 나눠 먹어, 아무 잘못 없는 회원의
+ * 로그인이 간헐적으로 "인증 시도가 너무 많습니다(4291)" 로 막힐 수 있다.
+ *
+ * 해결: 두 단계로 나눈다.
+ *  1) 회원별 — 같은 IP + 같은 이름·전화번호는 5분 20회. (한 사람의 반복 시도는 계속 막는다. 연속 실패 5회 잠금은 컨트롤러에 따로 있다.)
+ *  2) IP 전체 — 5분 300회. (이름·번호를 바꿔 가며 한 곳에서 쏘는 대입 공격은 여전히 막되, 공용 IP 의 정상 접속은 넉넉히 허용)
+ * 값은 .env 의 RATE_LIMIT_EMFS_LOGIN_MEMBER_MAX / RATE_LIMIT_EMFS_LOGIN_IP_MAX 로 조정한다.
+ */
+const memberKeyOf = (req) => {
+  const b = req.body || {};
+  const name = String(b.Emfs_Name || "").replace(/\s+/g, "");
+  const phone = String(b.Emfs_HandPhone || "").replace(/\D/g, "");
+  return crypto.createHash("sha256").update(name + "|" + phone).digest("hex").slice(0, 16);
+};
+
+// 막힐 때 한 번씩 로그를 남긴다 (같은 대상은 60초에 한 번만 — 로그가 넘치지 않게)
+const lastLogged = new Map();
+const logBlocked = (label) => (req, res, next, options) => {
+  const key = label + ":" + (req.ip || "");
+  const now = Date.now();
+  if (!lastLogged.has(key) || now - lastLogged.get(key) > 60 * 1000) {
+    lastLogged.set(key, now);
+    if (lastLogged.size > 5000) lastLogged.clear();
+    console.warn("[rateLimit] 차단 " + label + " ip=" + req.ip + " path=" + req.originalUrl);
+  }
+  res.status(options.statusCode).json(options.message);
+};
+
+const EMFS_LOGIN_MESSAGE = {
+  RET_STAT: "error",
+  RET_DESC: "❌ 로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+  RET_CODE: "4291",
+};
+
+const emfsLoginMemberLimiter = rateLimit({
+  ...COMMON,
+  windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 5 * 60 * 1000),
+  limit: Number(process.env.RATE_LIMIT_EMFS_LOGIN_MEMBER_MAX || 20),
+  keyGenerator: (req) => "m:" + ipKeyGenerator(req.ip) + ":" + memberKeyOf(req),
+  handler: logBlocked("로그인(회원별)"),
+  message: EMFS_LOGIN_MESSAGE,
+});
+
+const emfsLoginIpLimiter = rateLimit({
+  ...COMMON,
+  windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 5 * 60 * 1000),
+  limit: Number(process.env.RATE_LIMIT_EMFS_LOGIN_IP_MAX || 300),
+  keyGenerator: (req) => "ip:" + ipKeyGenerator(req.ip),
+  handler: logBlocked("로그인(IP전체)"),
+  message: EMFS_LOGIN_MESSAGE,
+});
+
+module.exports = { generalLimiter, authLimiter, uploadLimiter, emfsLoginMemberLimiter, emfsLoginIpLimiter, memberKeyOf };

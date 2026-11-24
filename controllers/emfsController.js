@@ -10,7 +10,8 @@ require("dotenv").config();
 const { getJwtSecret, JWT_ALGORITHMS, normalizeAppId } = require("../middleware/authMiddleware");
 
 // EMFS 토큰 발급 (typ 로 일반/관리자 토큰과 구분, 알고리즘 고정, 비밀키 기본값 없음)
-const signEmfsToken = (appId, expiresIn = process.env.EMFS_TOKEN_EXPIRES || "8h") =>
+// 로그인 유지 시간 기본 12시간 (화면 안내문과 같게). 이어서 쓰는 회원이 중간에 로그인 만료로 저장을 못 하는 일을 줄인다. .env 의 EMFS_TOKEN_EXPIRES 로 바꿀 수 있다.
+const signEmfsToken = (appId, expiresIn = process.env.EMFS_TOKEN_EXPIRES || "12h") =>
   jwt.sign({ APPID: appId, typ: "emfs" }, getJwtSecret(), { algorithm: JWT_ALGORITHMS[0], expiresIn });
 
 // APP7 에서 클라이언트가 보내는 사진 참조(SAVE_FILE_NAME / YYYYMM)가 "내가 업로드한 파일" 형식인지 확인
@@ -82,7 +83,7 @@ const sniffFileType = async (filePath) => {
 
 const EXT_ALLOWED = ["jpg", "jpeg", "png", "pdf", "gif"];
 const EXT_GROUP = { jpg: "jpg", jpeg: "jpg", png: "png", gif: "gif", pdf: "pdf" };
-const MAX_PHOTO_MB = Number(process.env.EMFS_PHOTO_MAX_MB || 10);
+const MAX_PHOTO_MB = Number(process.env.EMFS_PHOTO_MAX_MB || 40);
 
 const safeUnlink = async (p) => {
   try { if (p) await fs.promises.unlink(p); } catch (_) { /* 이미 없으면 무시 */ }
@@ -574,10 +575,23 @@ const EMFS_LOGIN = async (req, res) => {
       INNER JOIN [baroyeon_crm].[dbo].baro_a001 b WITH (NOLOCK) ON a.idx = b.aid`;
 
     // 가입회원 매칭: 이름 + 전화번호만 확인한다. (이름은 공백 차이만 무시)
-    const rows = await executeQuery(
-      PHONE_DECL + selectBase(1) + ` WHERE ${PHONE_MATCH} AND ${NAME_MATCH};`,
+    // 대부분 본인 휴대폰(tel_hand / cust_tel_hand)으로 등록돼 있어 이 두 칸만 먼저 찾는다.
+    // 10개 칸을 OR 로 훑는 조회는 느려서, 동시 접속이 몰리면 DB 연결이 부족해 간헐 오류가 날 수 있다.
+    // 못 찾으면 예전처럼 10개 칸 전부로 다시 찾는다(찾는 범위는 예전과 같다).
+    const t0 = Date.now();
+    const PHONE_MATCH_FAST = `LEN(@FullPhone) > 8 AND (b.tel_hand = @FullPhone OR b.cust_tel_hand = @FullPhone)`;
+    let rows = await executeQuery(
+      PHONE_DECL + selectBase(1) + ` WHERE ${PHONE_MATCH_FAST} AND ${NAME_MATCH};`,
       params
     );
+    if (!rows || rows.length === 0) {
+      rows = await executeQuery(
+        PHONE_DECL + selectBase(1) + ` WHERE ${PHONE_MATCH} AND ${NAME_MATCH};`,
+        params
+      );
+    }
+    const lookupMs = Date.now() - t0;
+    if (lookupMs > 1500) console.warn(`[EMFS_LOGIN] 회원 조회가 느립니다: ${lookupMs}ms`);
     const user = rows && rows[0];
 
     if (!user) {
@@ -1539,6 +1553,7 @@ const EMFS_APP2 = async (req, res) => {
       RET_CODE: '0000',
     });
   } catch (err) {
+    console.error(`[EMFS_APP2] 저장 실패 appid=${req.body?.EMFS_APPID} 오류번호=${err?.number ?? '-'} 메시지=${err?.message}`);
     console.error('경제력/직업 등록 중 오류 발생:', err);
     return res.status(500).json({
       RET_DATA: null,

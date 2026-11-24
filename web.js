@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const { metricsMiddleware, metricsRouter } = require('./middleware/metrics');
-const { generalLimiter, authLimiter, uploadLimiter } = require('./middleware/rateLimit');
+const { generalLimiter, authLimiter, uploadLimiter, emfsLoginMemberLimiter, emfsLoginIpLimiter } = require('./middleware/rateLimit');
 
 // JWT 비밀키가 없으면 기본값으로 동작하지 않고 즉시 기동을 중단한다. (토큰 위조 방지)
 try {
@@ -123,11 +123,12 @@ app.use([
   '/api/users/MEM_APPLY',
   '/api/users/KAKAO_AUTH',
   '/api/users/NAVER_CALLBACK',
-  '/api/emfs/EMFS_LOGIN',
   '/api/emfs/INTRA_LOGIN',
   '/api/emfs/EMFS_REOPEN',
   '/api/contract/CHK_MEM', // 전화번호만으로 계약정보를 조회하므로 대입 시도를 제한
 ], authLimiter);
+// E-매칭폼 로그인은 공용 IP(휴대폰 데이터망)를 고려해 회원별 + IP 전체 두 단계로 제한한다 (middleware/rateLimit.js 설명 참고)
+app.use('/api/emfs/EMFS_LOGIN', emfsLoginIpLimiter, emfsLoginMemberLimiter);
 app.use([
   '/api/emfs/EMFS_FILEUPLOAD',
   '/api/contract/UPLOAD_CONTRACT',
@@ -190,9 +191,11 @@ const server = app.listen(PORT, () => {
 
 // 소켓 타임아웃 - 이 값들이 없으면 끊어진 클라이언트의 연결과 그 요청 객체가
 // 계속 살아남아 메모리를 잠식한다.
-server.keepAliveTimeout = Number(process.env.KEEPALIVE_TIMEOUT_MS || 65000);
+// IIS(ARR)는 이어 둔 연결을 재사용한다. Node 가 먼저 그 연결을 닫으면 ARR 이 닫힌 연결로 요청을 보내 드물게 502 가 난다.
+// 그래서 Node 의 유지 시간을 ARR 쪽보다 길게(기본 125초) 둔다. headersTimeout 은 keepAlive 보다 5초 길게, requestTimeout 은 그보다 길어야 한다.
+server.keepAliveTimeout = Number(process.env.KEEPALIVE_TIMEOUT_MS || 125000);
 server.headersTimeout = server.keepAliveTimeout + 5000;
-server.requestTimeout = Number(process.env.REQUEST_TIMEOUT_MS || 120000);
+server.requestTimeout = Math.max(Number(process.env.REQUEST_TIMEOUT_MS || 180000), server.headersTimeout + 5000);
 
 // 포트 바인딩 실패 같은 기동 오류는 되살릴 방법이 없으므로 즉시 죽어야 한다.
 // (조용히 살아남으면 "떠 있는데 응답이 없는" 상태가 되어 원인 파악이 더 어렵다)
