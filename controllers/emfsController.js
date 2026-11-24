@@ -340,20 +340,37 @@ const EMFS_SCHOOL = async (req, res) => {
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 // 희망상대 - 코드검색
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
+// 코드 목록(직업·종교·학력…)은 회원과 무관하고 거의 바뀌지 않는데, 회원이 희망상대 화면을 열 때마다 7번씩 DB 를 조회했다.
+// 그리고 항목마다 회원의 선택값을 찾는 하위 조회(CODEKEY_DATA)까지 붙어 있었지만 화면은 그 값을 쓰지 않는다(선택값은 EMFS_APP5_SEL 이 준다).
+// → 하위 조회를 없애고, 코드 그룹별 결과를 10분간 서버 메모리에 보관한다. (코드가 바뀌면 최대 10분 뒤 반영된다)
+const codesCache = new Map(); // CodeGroup -> { at, rows }
+const CODES_TTL_MS = 10 * 60 * 1000;
+const CODES_CACHE_MAX = 50; // 임의의 CodeGroup 값으로 메모리가 늘지 않게 상한을 둔다
+
 const EMFS_CODES = async (req, res) => {
   try {
-    const { DivCode, CodeGroup, AppId } = req.body;
+    const { CodeGroup } = req.body;
 
-    const query = ` SELECT CODEKEY, CODEVALUE, DEPTH, 
-              (SELECT TOP 1 HOPEMATCH FROM [baroyeon_crm].[dbo].APPMEMBERPROFILE4 WHERE DIVCODE = @DIVCODE AND CODEKEY = DETCODE 
-              AND APPID = @APPID ORDER BY COPYDIV DESC) AS CODEKEY_DATA
+    const query = ` SELECT CODEKEY, CODEVALUE, DEPTH
               FROM [baroyeon_crm].[dbo].XCODELIST WHERE DEPTH = '1' AND CODEGROUP =  @CODEGROUP AND LIVEDATE IS NULL ORDER BY SORT `
     const CodeParams = [
-      { name: 'DIVCODE', type: sql.VarChar, value: DivCode },
       { name: 'CODEGROUP', type: sql.VarChar, value: CodeGroup },
-      { name: 'APPID', type: sql.VarChar, value: AppId }
     ];
-    const CodeInfo = await executeQuery(query, CodeParams);
+    const cacheKey = String(CodeGroup ?? '');
+    const hit = codesCache.get(cacheKey);
+    let CodeInfo;
+    if (hit && Date.now() - hit.at < CODES_TTL_MS) {
+      CodeInfo = hit.rows;
+    } else {
+      const t0 = Date.now();
+      CodeInfo = await executeQuery(query, CodeParams);
+      const ms = Date.now() - t0;
+      if (ms > 1000) console.warn(`[EMFS_CODES] 조회가 느립니다 group=${cacheKey} ${ms}ms`);
+      if (Array.isArray(CodeInfo) && CodeInfo.length > 0) {
+        if (codesCache.size >= CODES_CACHE_MAX) codesCache.clear();
+        codesCache.set(cacheKey, { at: Date.now(), rows: CodeInfo });
+      }
+    }
     
     return res.status(200).json({
           RET_DESC: "✅ 정보 조회 성공",
