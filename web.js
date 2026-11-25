@@ -68,7 +68,8 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  // X-Sign-Token: 계약서 서명 화면(sign.baroyeon.net)이 업로드 때 보내는 서명 토큰
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Sign-Token'],
 };
 
 // API별 트래픽/응답시간 계측 (라우트보다 먼저)
@@ -135,7 +136,7 @@ app.use([
 ], uploadLimiter);
 app.use('/api', generalLimiter);
 
-// 계측 조회 (localhost 또는 METRICS_TOKEN 헤더만 허용)
+// 계측 조회 (서버에서 프록시 없이 직접 부르거나 METRICS_TOKEN 헤더가 맞을 때만 허용 - middleware/metrics.js)
 app.use('/api/_metrics', metricsRouter);
 
 // 라우트
@@ -158,7 +159,7 @@ app.use((err, req, res, next) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Sign-Token');
     res.header('Vary', 'Origin');
   }
 

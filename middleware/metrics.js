@@ -15,9 +15,10 @@
 //  GET /api/_metrics            -> JSON 전체 스냅샷
 //  GET /api/_metrics/top        -> 바이트/호출수 상위 20건만
 //  POST /api/_metrics/reset     -> 카운터 초기화
-//  (localhost 호출이거나 x-metrics-token 헤더가 .env METRICS_TOKEN과 같아야 허용)
+//  (이 서버에서 프록시를 거치지 않고 직접 부르거나, x-metrics-token 헤더가 .env METRICS_TOKEN과 같아야 허용)
 
 const express = require("express");
+const crypto = require("crypto");
 
 // 경로 키가 무한정 늘어나 이 미들웨어 자체가 메모리를 먹는 걸 막는다.
 const MAX_KEYS = 2000;
@@ -179,12 +180,42 @@ if (REPORT_MIN > 0) {
 
 const metricsRouter = express.Router();
 
-metricsRouter.use((req, res, next) => {
+/*
+ * 접근 판정
+ *
+ * 예전에는 req.ip 가 루프백이면 통과시켰다. 그런데 req.ip 는 trust proxy 설정과 X-Forwarded-For 에 따라 바뀌는 값이다.
+ * IIS(ARR)가 클라이언트 IP 를 헤더로 넘겨주지 않는 설정이면 외부 접속자도 전부 127.0.0.1 로 보여
+ * 누구나 /api/_metrics 를 볼 수 있었고, POST /reset 으로 집계를 지울 수도 있었다.
+ *
+ * 지금은 두 가지 중 하나일 때만 연다.
+ *   1) 이 서버에서 프록시를 거치지 않고 직접 부른 요청 - 실제 TCP 상대 주소(req.socket.remoteAddress)가 루프백이고,
+ *      프록시가 붙이는 흔적 헤더(X-Forwarded-*, X-ARR-*, Forwarded, X-Real-IP)가 하나도 없어야 한다.
+ *      IIS(ARR)를 거친 요청은 이 헤더가 반드시 붙으므로 외부에서는 이 경로를 쓸 수 없다.
+ *   2) x-metrics-token 헤더가 .env 의 METRICS_TOKEN 과 같다(시간 일정 비교).
+ */
+const PROXY_HEADERS = [
+  "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port",
+  "forwarded", "x-real-ip", "x-arr-log-id", "x-arr-ssl", "x-original-url", "x-client-ip",
+];
+
+const isDirectLocal = (req) => {
+  const addr = (req.socket && req.socket.remoteAddress) || "";
+  const loopback = addr === "::1" || addr === "127.0.0.1" || addr === "::ffff:127.0.0.1";
+  if (!loopback) return false;
+  return !PROXY_HEADERS.some((h) => req.headers[h] !== undefined);
+};
+
+const tokenMatches = (given) => {
   const token = process.env.METRICS_TOKEN;
-  const ip = req.ip || "";
-  const isLocal = ip.includes("127.0.0.1") || ip === "::1" || ip.includes("::ffff:127.0.0.1");
-  if (isLocal) return next();
-  if (token && req.headers["x-metrics-token"] === token) return next();
+  if (!token || typeof given !== "string" || !given) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+metricsRouter.use((req, res, next) => {
+  if (isDirectLocal(req)) return next();
+  if (tokenMatches(req.headers["x-metrics-token"])) return next();
   return res.status(403).json({ error: "metrics 접근 불가" });
 });
 

@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const contractUpload = require('../middleware/contractUpload');
+const { requireSignToken } = require('../middleware/contractSign');
 
 const {
     CHK_MEM,
@@ -21,7 +22,8 @@ router.post("/CHK_MEM", async (req, res, next) => {
 //#####                 계약서 업로드 Start                ######
 //#############################################################
 
-router.post("/UPLOAD_CONTRACT", contractUpload.single("file"), UPLOAD_CONTRACT);
+// 서명 토큰(CHK_MEM 이 내려 준 X-Sign-Token)을 파일 저장보다 먼저 확인한다
+router.post("/UPLOAD_CONTRACT", requireSignToken, contractUpload.single("file"), UPLOAD_CONTRACT);
 
 //#############################################################
 //#####                 계약서 업로드 End                ######
@@ -33,9 +35,8 @@ router.post("/UPLOAD_CONTRACT", contractUpload.single("file"), UPLOAD_CONTRACT);
 //#####              사실확인서 업로드 Start                ######
 //#############################################################
 
-router.post("/UPLOAD_INFORMATION", contractUpload.single("file"), UPLOAD_INFORMATION);
+router.post("/UPLOAD_INFORMATION", requireSignToken, contractUpload.single("file"), UPLOAD_INFORMATION);
 
-//〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
 //#####                사실확인서 업로드 End               ######
 //#############################################################

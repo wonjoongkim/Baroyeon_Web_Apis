@@ -10,6 +10,7 @@
 // 실제 사용량 기준으로 좁혀 나가는 걸 권장한다.
 
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const { ipKeyGenerator } = require("express-rate-limit");
 
@@ -18,21 +19,30 @@ const { ipKeyGenerator } = require("express-rate-limit");
  *
  * 사무실은 보통 공인 IP 하나를 NAT로 공유한다. IP로만 세면 같은 사무실 인원
  * 전체가 한 바구니를 나눠 쓰게 되어, 정상 업무 중에 429가 터진다.
- * 토큰이 있으면 토큰 기준으로, 없으면(공개 API) IP로 떨어뜨린다.
+ * 서명이 맞는 토큰이 있으면 토큰 기준으로, 없거나 틀리면 IP로 센다.
  *
- * 토큰은 여기서 검증하지 않는다. 이 미들웨어는 인증보다 먼저 돌고, 목적도
- * "구분"일 뿐이다. 실제 검증은 뒤의 verifyBearerToken이 한다.
+ * [주의] 토큰을 검증하지 않고 헤더 값만 보면 안 된다.
+ * 예전에는 Authorization 헤더에 아무 문자열이나 넣으면 그 해시를 제한 키로 썼다.
+ * 요청마다 값을 바꿔 보내면 매번 새 바구니가 생겨, 로그인 대입 공격까지 제한이 걸리지 않았다.
+ * 지금은 서명이 맞는 토큰일 때만 토큰 키를 쓴다(위조는 키를 모르면 만들 수 없다).
  * 토큰 원문을 메모리에 들고 있지 않도록 해시만 키로 쓴다.
  */
-const keyByUserOrIp = (req, res) => {
+const ipKey = (req) => "i:" + ipKeyGenerator(req.ip); // IPv6는 /64 단위로 묶어 주소를 바꿔 가며 우회하지 못하게 한다.
+
+const verifiedTokenKey = (req) => {
   const header = req.headers["authorization"];
-  const token = header ? header.split(" ")[1] : null;
-  if (token) {
-    return "t:" + crypto.createHash("sha256").update(token).digest("hex").slice(0, 32);
+  const token = typeof header === "string" ? header.split(" ")[1] : null;
+  const secret = process.env.JWT_SECRET;
+  if (!token || !secret) return null;
+  try {
+    jwt.verify(token, secret, { algorithms: ["HS256"] });
+  } catch (e) {
+    return null; // 위조·만료·형식 오류 → IP 로 센다
   }
-  // IPv6는 /64 단위로 묶어주는 헬퍼를 써야 한 사용자가 주소를 바꿔가며 우회하지 못한다.
-  return "i:" + ipKeyGenerator(req.ip);
+  return "t:" + crypto.createHash("sha256").update(token).digest("hex").slice(0, 32);
 };
+
+const keyByUserOrIp = (req, res) => verifiedTokenKey(req) || ipKey(req);
 
 const COMMON = {
   standardHeaders: "draft-7", // RateLimit-* 헤더
@@ -62,6 +72,8 @@ const generalLimiter = rateLimit({
 // 로그인/인증 - 자격증명 대입 시도를 막기 위해 훨씬 빡빡하게 건다
 const authLimiter = rateLimit({
   ...COMMON,
+  // 로그인류는 토큰이 없는 요청이라 늘 IP 로 센다. 헤더를 바꿔 가며 제한을 피하지 못하게 토큰 키를 아예 쓰지 않는다.
+  keyGenerator: ipKey,
   windowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS || 5 * 60 * 1000),
   limit: Number(process.env.RATE_LIMIT_AUTH_MAX || 20),
   // [주의] skipSuccessfulRequests 는 쓰지 않는다.

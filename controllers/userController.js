@@ -5,7 +5,17 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const axios = require('axios');
 const crypto = require('crypto');
+const { issueToken, verifyToken } = require("../utils/signedToken");
 require("dotenv").config();
+
+/* DB유입 등록 응답에 함께 내려 주는 "수정 토큰".
+   등록 직후 같은 신청의 메모(etc)를 고칠 때(상담 희망일 추가 등) 이 토큰을 돌려보내야 한다.
+   토큰은 그 신청 번호(Idx)에 대해서만, 30분 동안만 유효하다. 번호만 알아서는 남의 신청을 고칠 수 없다. */
+const INFLOW_TOKEN_TTL_SEC = 30 * 60;
+const inflowData = (idx) => ({ Idx: idx, UpdateToken: issueToken("inflow", idx, INFLOW_TOKEN_TTL_SEC) });
+
+/* 서버가 직접 본 접속 IP. 블랙리스트는 화면이 보내는 course_ip 값만 보면 값만 바꿔 우회되므로 이 값도 함께 본다. */
+const serverIpOf = (req) => String(req.ip || "").trim().replace(/^::ffff:/, "");
 
 //〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓〓
 //#############################################################
@@ -350,7 +360,7 @@ const DbInFlow = async (req, res) => {
       // "1.2.3.4",
     ]);
 
-    if (BLACKLIST_IPS.has(ip)) {
+    if (BLACKLIST_IPS.has(ip) || BLACKLIST_IPS.has(serverIpOf(req))) {
       return res.status(403).json({
         RET_DATA: null,
         RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
@@ -441,7 +451,7 @@ const DbInFlow = async (req, res) => {
           RET_STAT: "success",
           RET_DESC: "✅ 등록 성공",
           RET_CODE: "0000",
-          RET_DATA: {Idx: newIdx}
+          RET_DATA: inflowData(newIdx)
         });
       }
     
@@ -467,31 +477,65 @@ const DbInFlow_Update = async (req, res) => {
   // catch 블록에서도 참조할 수 있도록 함수 스코프로 선언한다.
   let Query, params;
   try {
-    const { etc = "", Idx } = req.body;
-    if (!Idx) {
+    const { etc = "", Idx, UpdateToken } = req.body || {};
+    const idx = parseInt(Idx, 10);
+    if (!Number.isInteger(idx) || idx <= 0) {
       return res.status(400).json({
         RET_DATA: null,
         RET_DESC: "❌ Idx 값이 필요합니다.",
         RET_CODE: "1001",
       });
     }
-    Query = ` UPDATE [baroyeon_crm].[dbo].[asso_provide] SET etc = @etc WHERE idx = @Idx; `;
+
+    /* 인증 없이 호출되는 API 라, 예전에는 번호(Idx)만 넣으면 남의 신청 메모를 아무나 덮어쓸 수 있었다.
+       등록 응답이 내려 준 UpdateToken 이 그 번호의 것이어야 한다.
+       전환 기간(.env 에 DBINFLOW_REQUIRE_TOKEN 없음)에는 토큰이 없는 요청도 받되,
+       "방금(30분 안에) 들어온 신청"으로만 좁힌다. 홈페이지를 새로 배포한 뒤 DBINFLOW_REQUIRE_TOKEN=1 로 바꾼다. */
+    let recentOnly = false;
+    if (UpdateToken) {
+      if (verifyToken("inflow", UpdateToken) !== String(idx)) {
+        return res.status(403).json({
+          RET_DATA: null,
+          RET_DESC: "❌ 수정할 수 없는 신청입니다.",
+          RET_CODE: "0004",
+        });
+      }
+    } else if (process.env.DBINFLOW_REQUIRE_TOKEN === "1") {
+      return res.status(403).json({
+        RET_DATA: null,
+        RET_DESC: "❌ 인증 정보가 없습니다.",
+        RET_CODE: "0006",
+      });
+    } else {
+      recentOnly = true;
+    }
+
+    Query = ` UPDATE [baroyeon_crm].[dbo].[asso_provide] SET etc = @etc
+              WHERE idx = @Idx ${recentOnly ? "AND input_date >= DATEADD(MINUTE, -30, GETDATE())" : ""};
+              SELECT @@ROWCOUNT AS n; `;
     params = [
-      { name: "etc", type: sql.NVarChar, value: etc },
-      { name: "Idx", type: sql.Int, value: Idx },
+      { name: "etc", type: sql.NVarChar, value: String(etc ?? "").slice(0, 4000) },
+      { name: "Idx", type: sql.Int, value: idx },
     ];
 
     const result = await executeQuery(Query, params);
+    if (!Number(result?.[0]?.n)) {
+      return res.status(404).json({
+        RET_STAT: "fail",
+        RET_DESC: "❌ 수정할 수 있는 신청이 없습니다.",
+        RET_CODE: "1004",
+      });
+    }
     res.status(200).json({
       RET_STAT: "success",
       RET_DESC: "✅ 등록 성공",
       RET_CODE: "0000"
     });
- 
-    
+
+
   } catch (err) {
     logQueryError('DbInFlow_Update', err, Query, params);
-    res.status(500).json({ 
+    res.status(500).json({
       RET_STAT: "error",
       RET_DESC: "❌ 서버 오류 발생",
       RET_CODE: "1000",
@@ -528,7 +572,7 @@ const DbInFlowNoAuth = async (req, res) => {
       "43.255.29.71", "178.235.253.236", "45.8.22.129"
     ]);
 
-    if (BLACKLIST_IPS.has(ip)) {
+    if (BLACKLIST_IPS.has(ip) || BLACKLIST_IPS.has(serverIpOf(req))) {
       return res.status(403).json({
         RET_DATA: null,
         RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
@@ -616,7 +660,7 @@ const DbInFlowNoAuth = async (req, res) => {
           RET_STAT: "success",
           RET_DESC: "✅ 등록 성공",
           RET_CODE: "0000",
-          RET_DATA: {Idx: newIdx}
+          RET_DATA: inflowData(newIdx)
         });
       }
    
@@ -655,7 +699,7 @@ const DbInFlowNoAuth_VelyB = async (req, res) => {
     // ✅ 블랙리스트 (추가하기 쉬움)
     const BLACKLIST_IPS = new Set(["43.255.29.71"]);
 
-    if (BLACKLIST_IPS.has(ip)) {
+    if (BLACKLIST_IPS.has(ip) || BLACKLIST_IPS.has(serverIpOf(req))) {
       return res.status(403).json({
         RET_DATA: null,
         RET_DESC: "❌ 블랙리스트에 등록된 사용자입니다.",
@@ -740,7 +784,7 @@ const DbInFlowNoAuth_VelyB = async (req, res) => {
       RET_STAT: "success",
       RET_DESC: "✅ 등록 성공",
       RET_CODE: "0000",
-      RET_DATA: { Idx: newIdx },
+      RET_DATA: inflowData(newIdx),
     });
   } catch (err) {
     logQueryError("DbInFlowNoAuth_VelyB", err, Query || "[no query]", params || []);
